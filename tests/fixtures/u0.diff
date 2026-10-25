@@ -1,0 +1,35 @@
+# shape: a -U0 diff with a pure insertion, a replaced block, removed SQL comment lines, a pure rename, a deleted file and a non-ASCII path
+diff --git a/src/app/billing.py b/src/app/billing.py
+--- a/src/app/billing.py
++++ b/src/app/billing.py
+@@ -5,0 +6,2 @@ def total(items):
++    # inserted
++    # lines
+@@ -20,3 +22 @@ def tax(amount):
+-    a = 1
+-    b = 2
+-    c = 3
++    abc = 6
+diff --git a/db/migrations/0042_fees.sql b/db/migrations/0042_fees.sql
+--- a/db/migrations/0042_fees.sql
++++ b/db/migrations/0042_fees.sql
+@@ -3,2 +3,0 @@
+--- old fee comment
+--- another comment
+diff --git a/src/app/legacy.py b/src/app/modern.py
+similarity index 100%
+rename from src/app/legacy.py
+rename to src/app/modern.py
+diff --git a/src/app/gone.py b/src/app/gone.py
+deleted file mode 100644
+--- a/src/app/gone.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-x = 1
+-y = 2
+diff --git a/src/app/factura_número.py b/src/app/factura_número.py
+--- a/src/app/factura_número.py
++++ b/src/app/factura_número.py
+@@ -7 +7 @@
+-old = 1
++new = 1

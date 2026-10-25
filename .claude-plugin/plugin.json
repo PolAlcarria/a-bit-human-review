@@ -1,0 +1,6 @@
+{
+  "name": "a-bit-human-review",
+  "description": "Triage Claude's code-review findings on a local page beside the code, then draft and post the PR comments you approve.",
+  "version": "0.1.0",
+  "author": {"name": "Pol Alcarria"}
+}

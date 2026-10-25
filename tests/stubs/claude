@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Stub `claude` for the tests: replays one canned stream-json answer and never calls Anthropic.
+
+Reads the prompt from stdin, then prints, one JSON object per line: an init event with the session id, one assistant
+event with a Read tool call (or a SendMessage call, see STUB_CLAUDE_SEND), and a result event.
+  claude --version         prints a version and exits, without reading a prompt
+Environment:
+  STUB_CLAUDE_SESSION     the session id it reports (default stub-session-0001)
+  STUB_CLAUDE_RESULT      the result text (default "Stub reply.")
+  STUB_CLAUDE_STRUCTURED  a JSON file whose object becomes the result's structured_output (as with --json-schema)
+  STUB_CLAUDE_SLEEP       seconds to wait after the tool call, before the result (for the stop and kill tests)
+  STUB_CLAUDE_ARGS        a file the stub appends its arguments to, as one JSON list per call
+  STUB_CLAUDE_PROMPT      a file the stub appends its prompt to, as one JSON string per line
+  STUB_CLAUDE_SEND        ok or error: the relay's SendMessage call (send.deliver) instead of the Read. It sends the
+                          to and message the prompt gives (its to="" and <<<MESSAGE markers); the tool answers
+                          "Message delivered." for ok, and "No session named that." as an error for error
+"""
+import json
+import os
+import re
+import sys
+import time
+
+if sys.argv[1:] == ['--version']:
+    print('9.9.9 (Claude Code stub)')
+    sys.exit(0)
+prompt = sys.stdin.read()
+session = os.environ.get('STUB_CLAUDE_SESSION', 'stub-session-0001')
+if os.environ.get('STUB_CLAUDE_ARGS'):
+    with open(os.environ['STUB_CLAUDE_ARGS'], 'a', encoding='utf-8') as fh:
+        fh.write(json.dumps(sys.argv[1:]) + '\n')
+if os.environ.get('STUB_CLAUDE_PROMPT'):
+    with open(os.environ['STUB_CLAUDE_PROMPT'], 'a', encoding='utf-8') as fh:
+        fh.write(json.dumps(prompt) + '\n')
+
+
+def emit(event):
+    sys.stdout.write(json.dumps(event) + '\n')
+    sys.stdout.flush()
+
+
+emit({'type': 'system', 'subtype': 'init', 'session_id': session, 'model': 'stub-model'})
+if os.environ.get('STUB_CLAUDE_SEND'):
+    to = re.search(r'to="([^"]*)"', prompt)
+    message = re.search(r'<<<MESSAGE\n(.*?)\nMESSAGE>>>', prompt, re.S)
+    failed = os.environ['STUB_CLAUDE_SEND'] == 'error'
+    emit({'type': 'assistant', 'message': {'model': 'stub-model', 'content': [
+        {'type': 'tool_use', 'id': 'toolu_stub_send', 'name': 'SendMessage',
+         'input': {'to': to.group(1) if to else '', 'message': message.group(1) if message else ''}}]}})
+    emit({'type': 'user', 'message': {'role': 'user', 'content': [
+        {'type': 'tool_result', 'tool_use_id': 'toolu_stub_send',
+         'content': 'No session named that.' if failed else 'Message delivered.', 'is_error': failed}]}})
+else:
+    emit({'type': 'assistant', 'message': {'model': 'stub-model', 'content': [
+        {'type': 'tool_use', 'id': 'toolu_stub_1', 'name': 'Read', 'input': {'file_path': 'src/app/billing.py'}}]}})
+time.sleep(float(os.environ.get('STUB_CLAUDE_SLEEP') or 0))
+result = {'type': 'result', 'subtype': 'success', 'is_error': False, 'session_id': session,
+          'result': os.environ.get('STUB_CLAUDE_RESULT', 'Stub reply.'), 'total_cost_usd': 0.0123,
+          'usage': {'input_tokens': 120, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0,
+                    'output_tokens': 30}}
+if os.environ.get('STUB_CLAUDE_STRUCTURED'):
+    with open(os.environ['STUB_CLAUDE_STRUCTURED'], encoding='utf-8') as fh:
+        result['structured_output'] = json.load(fh)
+emit(result)

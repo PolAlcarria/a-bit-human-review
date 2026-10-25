@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Stub `gh` for the tests: canned answers for the calls the tool makes, and never reaches GitHub.
+
+  gh api user [--jq .login]                         the login (STUB_GH_LOGIN, default stub-reviewer)
+  gh pr view N --json ... [--repo o/r]              PR 4242 of acme/billing: three commits and one review by the login
+  gh api repos/O/R/pulls/N/reviews --method POST    a posted review's id and URL
+  gh api repos/O/R/pulls/N/reviews                  an empty list
+  gh auth status                                    the login (exit 1 with STUB_GH_AUTH=0: not logged in)
+Anything else fails with exit code 1, as gh does for an unknown call.
+"""
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+login = os.environ.get('STUB_GH_LOGIN', 'stub-reviewer')
+A, B, C = 'a1' * 20, 'b2' * 20, 'c3' * 20
+PR_VIEW = {
+    'headRefOid': C, 'state': 'OPEN', 'url': 'https://github.com/acme/billing/pull/4242',
+    'commits': [
+        {'oid': A, 'messageHeadline': 'Add rounding', 'authors': [{'login': 'dev-one'}], 'committedDate': '2026-10-18T10:00:00Z'},
+        {'oid': B, 'messageHeadline': 'Fix tests', 'authors': [{'login': 'dev-one'}], 'committedDate': '2026-10-19T09:00:00Z'},
+        {'oid': C, 'messageHeadline': 'Address review', 'authors': [{'name': 'Dev One'}], 'committedDate': '2026-10-19T11:00:00Z'},
+    ],
+    'reviews': [{'author': {'login': login}, 'state': 'CHANGES_REQUESTED', 'submittedAt': '2026-10-18T12:00:00Z',
+                 'commit': {'oid': A}}],
+}
+
+if args[:2] == ['api', 'user']:
+    print(login if '--jq' in args else json.dumps({'login': login}))
+elif args[:2] == ['pr', 'view']:
+    print(json.dumps(PR_VIEW))
+elif args[:1] == ['api'] and len(args) > 1 and args[1].startswith('repos/') and args[1].endswith('/reviews'):
+    if 'POST' in args:
+        print(json.dumps({'id': 9001, 'html_url': 'https://github.com/acme/billing/pull/4242#pullrequestreview-9001'}))
+    else:
+        print('[]')
+elif args[:2] == ['auth', 'status']:
+    if os.environ.get('STUB_GH_AUTH') == '0':
+        sys.stderr.write('You are not logged into any GitHub hosts.\n')
+        sys.exit(1)
+    print(f'github.com\n  ✓ Logged in to github.com account {login}')
+else:
+    sys.stderr.write('stub gh: no canned answer for: ' + ' '.join(args) + '\n')
+    sys.exit(1)

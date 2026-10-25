@@ -1,0 +1,12 @@
+{
+  "name": "a-bit-human-review",
+  "description": "Triage Claude's code-review findings on a local page beside the code, then draft and post the PR comments you approve.",
+  "owner": {"name": "Pol Alcarria"},
+  "plugins": [
+    {
+      "name": "a-bit-human-review",
+      "source": "./",
+      "description": "Triage Claude's code-review findings on a local page beside the code, then draft and post the PR comments you approve."
+    }
+  ]
+}

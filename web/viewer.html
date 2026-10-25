@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" media="(prefers-color-scheme: dark)" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous">
+<script nonce="__NONCE__" src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
+<script nonce="__NONCE__" src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+<script nonce="__NONCE__" src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<style>
+/*__SHARED_CSS__*/
+/*__CSS__*/
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div><a class="home" id="home" href="/" hidden>← All reviews</a><h1 id="title"></h1><div class="sub" id="subtitle"></div></div>
+    <div class="meta" id="meta"></div>
+  </div>
+  <div class="toolbar">
+    <div class="progress" id="progress"></div>
+    <div class="seg" id="statusFilter"></div>
+    <div class="filters" id="filters"></div>
+    <div class="tools"><span class="saved" id="saved" aria-live="polite"></span>
+      <button class="linkbtn jobs" id="jobs" aria-expanded="false" aria-controls="jobs-panel" title="What runs on this review, and the Claude sessions behind it" hidden>Sessions</button>
+      <div class="jobs-panel" id="jobs-panel" role="region" aria-label="Running on this review, and Claude sessions" tabindex="-1" hidden></div>
+      <button class="linkbtn send" id="draft" hidden>Draft comments</button><span class="saved warn" id="send-why" hidden></span><button class="linkbtn send" id="send-fixes" hidden>Send fixes to session</button><button class="linkbtn" id="copy" title="Copy your triage as text, to paste into any chat">Copy triage</button>
+      <button class="linkbtn" id="chat-show" title="Show the chat with Claude (h)" hidden>💬 Show chat</button></div>
+  </div>
+</header>
+<dialog class="dialog" id="drafts" aria-labelledby="drafts-title">
+  <div class="dh"><b id="drafts-title">Draft review</b><span class="sub" id="drafts-sub"></span><button class="gear" id="drafts-close" aria-label="Close" title="Close (Esc)">✕</button></div>
+  <div class="dbody" id="drafts-body"></div>
+  <div class="dfoot" id="drafts-foot"></div>
+</dialog>
+<div class="banner notes" id="notes" hidden></div>
+<div class="banner" id="fresh" role="status" hidden></div>
+<div class="banner" id="rereview" hidden></div>
+<div class="layout">
+  <nav id="list" aria-label="Findings" tabindex="-1"></nav>
+  <main id="detail"></main>
+  <aside id="chat">
+    <div class="chat-h"><b id="chat-title">Discuss with Claude</b>
+      <button class="gear" id="gear" aria-label="Chat settings: model and context" title="Chat settings: model and context">⚙</button>
+      <button class="gear" id="chat-hide" aria-label="Hide the chat" title="Hide the chat (h)">⇥</button>
+      <span class="sub" id="chat-sub">A separate Claude that can read the repo but can't edit or post. Press <kbd>c</kbd> to type.</span></div>
+    <div class="settings" id="settings" hidden>
+      <label class="row">Model
+        <select id="set-model"></select>
+        <input type="text" id="set-custom" aria-label="Model id" placeholder="Model id, e.g. claude-opus-5-5" hidden>
+      </label>
+      <div class="hint">Rough cost per message here: Haiku about 1¢, Sonnet 5–15¢, Opus 20–40¢, Fable 50¢ or more. Applies from your next message.</div>
+      <fieldset>
+        <legend>Context for new threads</legend>
+        <label class="opt"><input type="radio" name="set-ctx" value="finding"><b>Finding only</b>
+          <span>The finding, its code and your note. Fast and cheap.</span></label>
+        <label class="opt"><input type="radio" name="set-ctx" value="fork"><b>Fork the review session</b>
+          <span>A copy of the Claude Code session that wrote the review, so Claude knows the whole review conversation. The original session is not touched. The first message of each thread reloads that conversation, often 100k+ tokens, so it costs several times a normal message. Later messages in the thread are cheap again.</span></label>
+        <div class="hint" id="fork-avail"></div>
+      </fieldset>
+      <label class="opt"><input type="checkbox" id="set-keys"><b>Single-key shortcuts</b>
+        <span>j, k, a, r, u, n, e, c, h, o, [ and ] work anywhere outside a text field. Turn off if you use speech input.</span></label>
+      <div class="actions"><button class="tb" id="set-done">Done</button><span class="hint" id="set-saved" aria-live="polite">Saved for all review pages.</span></div>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="quick" id="quick">
+      <button data-q="Is this a real problem? Check it against the code.">Is it real?</button>
+      <button data-q="Draft the PR comment for this finding. Follow my note if I wrote one.">Draft the comment</button>
+      <button data-q="What is the smallest correct fix?">Smallest fix?</button>
+      <button data-q="Make the comment shorter and softer, same substance.">Softer</button>
+    </div>
+    <form id="chatform"><textarea id="chatin" rows="1" aria-label="Message to Claude about this finding" placeholder="Ask about this finding…  (⌘↵ to send)"></textarea><button type="submit" class="tb" id="chatsend">Send</button></form>
+  </aside>
+</div>
+<div id="announce" class="sr-only" aria-live="polite"></div>
+<script type="application/json" id="data">/*__DATA__*/</script>
+<script nonce="__NONCE__">
+/*__JS__*/
+</script>
+</body>
+</html>

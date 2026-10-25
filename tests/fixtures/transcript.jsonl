@@ -1,0 +1,14 @@
+# shape: one review session: a prompt naming the viewer, tool calls, a sidechain, a tool result, a bad line, an injected triage, a peer hand-back and an unrelated peer message
+{"type":"user","message":{"role":"user","content":"Review https://github.com/acme/billing/pull/4242 and open it in the finding viewer"},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Fetching the diff."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"gh pr diff 4242 --repo acme/billing"}}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"diff --git ..."}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"sidechain text must be skipped"}]},"sessionId":"sess-0001-aaaa"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"## Critical\n- Rounding bug at src/app/billing.py:42"}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+not json at all
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Thanks, what next?"}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"attachment","attachment":{"type":"hook_additional_context","content":"Finding-viewer triage for \"Code review · PR #4242\" (2 to post)"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"I will post C1."}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"user","isMeta":true,"origin":{"kind":"peer","body":"Finding-viewer posted the review on PR #4242"},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Noted."}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"user","isMeta":true,"origin":{"kind":"peer","body":"unrelated peer chatter"},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Still the same turn."}]},"cwd":"/work/billing","sessionId":"sess-0001-aaaa"}

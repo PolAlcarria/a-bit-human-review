@@ -1,0 +1,14 @@
+# shape: the "findings" list Claude returns when it reads a review: duplicate ids, a numeric id, an unknown severity, bad locations, an empty title and a non-object entry
+[
+  {"id": "C1", "severity": "critical", "title": " Rounding ", "body": " b ", "locations": [
+    {"path": "src/app/billing.py", "start": 42},
+    {"path": "src/app/billing.py", "start": 50, "end": 49, "looked_up": true},
+    {"path": "", "start": 3},
+    {"path": "src/app/x.py", "start": 0}]},
+  {"id": "C1", "severity": "critical", "title": "dup id"},
+  {"id": "7", "severity": "warning", "title": "digits id", "locations": [{"path": "src/app/a.py", "start": 1, "end": 900}]},
+  {"id": "X<1>!", "severity": "bogus", "title": "weird", "recurring": 1},
+  {"title": "   "},
+  "not a dict",
+  {"severity": "question", "title": "no id"}
+]

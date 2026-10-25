@@ -1,0 +1,12 @@
+# Runtime data, regenerated or written by the app
+out
+worktrees/
+clones/
+__pycache__/
+settings.json
+state.json
+inject_state.json
+viewer.log
+disabled
+*.tmp
+.impeccable/

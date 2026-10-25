@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code reviews · a-bit-human-review</title>
+<style>
+/*__SHARED_CSS__*/
+:root {
+  --ok: #1a7f37; --warning: #b35900; --link: #0969da; --del: #cf222e; --on-accent: #ffffff; --fix: #08707c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ok: #3fb950; --warning: #e3a33b; --link: #4c9aff; --del: #f85149; --on-accent: #0d1117; --fix: #39c5cf;
+  }
+}
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
+main { max-width: 900px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font-size: 20px; margin: 0 0 2px; }
+.lead { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.err { color: var(--del); font-size: 13px; margin: 0 0 12px; }
+.group { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-bottom: 12px; overflow: hidden; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: start; padding: 12px 14px; }
+.what { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .badges { grid-column: 1 / -1; }
+.row .acts { grid-column: 2; grid-row: 1; display: flex; gap: 6px; }
+.what a.t { color: var(--text); font-weight: 600; font-size: 15px; text-decoration: none; overflow-wrap: anywhere; }
+.what a.t:hover { color: var(--link); }
+.what .sub { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.what .sub a { color: var(--muted); }
+.what code { font: 12px var(--mono); }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.badge { font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; color: var(--muted); white-space: nowrap; }
+.badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.badge.warn { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
+.badge.post { color: var(--ok); font-weight: 600; }
+.badge.fix { color: var(--fix); font-weight: 600; }
+a.badge { text-decoration: none; }
+/* Something runs on the review now (a draft, a post, a side chat, Check again): jobs.py. */
+.badge.run { color: var(--link); border-color: color-mix(in srgb, var(--link) 50%, transparent); display: inline-flex; gap: 6px; align-items: center; }
+.badge.run .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1s infinite alternate; }
+@media (prefers-reduced-motion: reduce) { .badge.run .dot { animation: none; } }
+a.badge:hover { border-color: currentColor; }
+.act { border: 1px solid var(--border); background: var(--panel); color: var(--muted); border-radius: 6px; padding: 2px 10px; font: 12px var(--sans); cursor: pointer; }
+.act:hover { color: var(--text); border-color: var(--muted); }
+.act:disabled, .act[aria-disabled="true"] { opacity: .5; cursor: default; }
+.act[aria-disabled="true"]:hover { color: var(--muted); border-color: var(--border); }
+.del:hover { color: var(--del); border-color: var(--del); }
+.del.armed { background: var(--del); border-color: var(--del); color: var(--on-accent); }
+details.older { border-top: 1px solid var(--border); background: var(--bg); }
+details.older summary { cursor: pointer; padding: 7px 14px; font-size: 12px; color: var(--muted); }
+details.older summary:hover { color: var(--text); }
+details.older .row { padding: 8px 14px 8px 30px; border-top: 1px solid var(--border); }
+details.older .what a.t { font-size: 13px; font-weight: 500; }
+details.fold { margin-top: 20px; }
+details.fold > summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+details.fold > summary:hover { color: var(--text); }
+details.fold .group { opacity: .8; }
+.empty { color: var(--muted); text-align: center; padding: 56px 16px; border: 1px dashed var(--border); border-radius: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="heading" tabindex="-1">Code reviews</h1>
+  <p class="lead" id="lead">Loading…</p>
+  <p class="err" id="err" role="alert" hidden></p>
+  <p class="sr-only" id="status" role="status"></p>
+  <div id="list"></div>
+</main>
+<script nonce="__NONCE__">
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Rebuild a container and keep keyboard focus on the equivalent element, so a freshness result never drops focus to <body>.
+function rerender(el, html, attrs) {
+  const a = el.contains(document.activeElement) ? document.activeElement : null;
+  const want = a ? attrs.filter(k => a.hasAttribute(k)).map(k => [k, a.getAttribute(k)]) : [];
+  el.innerHTML = html;
+  if (want.length) el.querySelector(want.map(([k, v]) => `[${k}="${CSS.escape(v)}"]`).join(''))?.focus({ preventScroll: true });
+}
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const when = iso => new Date(iso).toLocaleString([], { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const FRESH_MAX_AGE = 60;
+let REVIEWS = [];
+const fresh = {};
+const checking = new Set();
+const openGroups = new Set();
+const armed = new Set();  // pages whose Delete button waits for the second click; kept here so a re-render keeps it
+let doneOpen = false, archivedOpen = false;
+let listSig = '', pollTimer = null;
+
+function groups() {
+  const byKey = new Map();
+  for (const r of REVIEWS) {
+    if (!byKey.has(r.group)) byKey.set(r.group, []);
+    byKey.get(r.group).push(r);
+  }
+  // REVIEWS comes newest first, so each group's first page is its newest render.
+  return [...byKey.values()];
+}
+
+const freshOf = r => fresh[r.page] || r.freshness;
+
+// Nothing left to do: merged, closed, or you approved what the PR holds now. Older checks lack `done`.
+const isDone = r => { const F = freshOf(r); return !!F && (F.done ?? ['MERGED', 'CLOSED'].includes(F.state)); };
+
+function mineBadge(r) {
+  const M = freshOf(r)?.mine;
+  if (!M) return '';
+  if (M.state === 'CHANGES_REQUESTED') return '<span class="badge warn">you requested changes</span>';
+  if (M.covers_head) return '<span class="badge ok">✓ you approved</span>';
+  const since = M.new_since != null ? plural(M.new_since, 'new commit') : 'force-pushed';
+  return `<span class="badge warn" title="Your approval is on ${esc(M.commit.slice(0, 8))}">✓ you approved · ${since} since</span>`;
+}
+
+function freshBadge(r) {
+  if (!r.checkable) return '<span class="badge" title="This review read the working tree, so there is no commit to compare">working tree</span>';
+  const F = freshOf(r);
+  if (!F) return checking.has(r.page) ? '<span class="badge">checking the PR…</span>' : '';
+  if (F.state === 'MERGED') return '<span class="badge">merged</span>';
+  if (F.state === 'CLOSED') return '<span class="badge">closed</span>';
+  if (F.status === 'current') return '<span class="badge ok">✓ up to date</span>';
+  if (F.status === 'rewritten') return '<span class="badge warn">⚠ force-pushed since the review</span>';
+  if (F.status === 'behind') {
+    const hit = Object.keys(F.affected || {}).length;
+    return `<span class="badge warn">⚠ ${plural((F.new_commits || []).length, 'new commit')}${hit ? ` · ${plural(hit, 'finding')} on changed code` : ''}</span>`;
+  }
+  return F.reason ? `<span class="badge" title="${esc(F.reason)}">can't check</span>` : '';
+}
+
+function triageBadges(r) {
+  const decided = r.post + r.skip + (r.fix || 0);
+  const out = [`<span class="badge">${plural(r.findings, 'finding')}</span>`];
+  out.push(decided ? `<span class="badge${decided === r.findings ? ' ok' : ''}">${decided}/${r.findings} decided</span>` : '<span class="badge">not triaged</span>');
+  if (r.post) out.push(`<span class="badge post">${r.post} to post</span>`);
+  if (r.fix) out.push(`<span class="badge fix" title="Findings in your own code, to fix before anyone else reviews it">${r.fix} to fix</span>`);
+  if (r.fixed) out.push(`<span class="badge" title="Findings the PR's new commits fixed: not counted above">${r.fixed} fixed since</span>`);
+  // A re-review of the PR's new commits names itself: the review is locked while it runs.
+  if (r.running?.length) out.push(`<span class="badge run" title="Running now: ${esc(r.running.join(', '))}"><span class="dot" aria-hidden="true"></span>${r.locked ? 'Reviewing new commits' : `${r.running.length} running`}</span>`);
+  if (r.chats) out.push(`<span class="badge">💬 ${plural(r.chats, 'chat')}</span>`);
+  out.push(handedBadge(r));
+  return out.join('');
+}
+
+// Where the triage went: drafts on the review page (drafting → ready → posted), or Claude got it with a message.
+function handedBadge(r) {
+  const H = r.handed;
+  if (!H) return '';
+  if (H.draft === 'posted') {
+    const at = H.at ? ` · ${esc(new Date(H.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}` : '';
+    return H.url ? `<a class="badge ok" href="${esc(H.url)}" target="_blank" rel="noopener">✓ posted to GitHub${at} ↗</a>`
+      : `<span class="badge ok">✓ posted to GitHub${at}</span>`;
+  }
+  if (H.draft === 'drafting') return '<span class="badge">drafting comments…</span>';
+  if (H.draft === 'posting') return '<span class="badge">posting…</span>';
+  if (H.draft === 'ready') return `<a class="badge warn" href="/${encodeURIComponent(r.page)}.html#drafts" title="Open the drafts to edit and approve them">drafts ready to approve →</a>`;
+  if (H.draft === 'failed') return H.stopped ? '<span class="badge" title="You stopped the drafting">drafting stopped</span>'
+    : `<span class="badge warn" title="${esc(H.error || '')}">⚠ drafts failed</span>`;
+  return H.current ? '<span class="badge ok" title="Claude has this triage">📨 sent to Claude</span>'
+    : '<span class="badge warn" title="Claude has an older triage">📨 sent · triage changed since</span>';
+}
+
+// While a re-review runs on a render, the server refuses Archive (it covers the whole card) and Delete with 423.
+const LOCKED = 'Claude is reviewing the new commits of this review. Wait until that ends, or stop it on the review page.';
+const lockAttr = on => on ? ` aria-disabled="true" title="${esc(LOCKED)}"` : '';
+
+function row(r, newest, groupLocked = false) {
+  const href = '/' + encodeURIComponent(r.page) + '.html';
+  const name = newest ? r.title : `Earlier render · ${when(r.created)}`;
+  const sub = [];
+  if (newest) sub.push(esc(when(r.created)));
+  if (newest && r.repo) sub.push(esc(r.repo));
+  if (r.reviewed) sub.push(`commit <code>${esc(r.reviewed)}</code>`);
+  if (newest && r.pr_author) sub.push(`opened by <b>${esc(r.pr_author)}</b>`);
+  if (newest && r.pr_url) sub.push(`<a href="${esc(r.pr_url)}" target="_blank" rel="noopener">PR on GitHub ↗</a>`);
+  return `<div class="row">
+    <div class="what"><a class="t" href="${href}">${esc(name)}</a><div class="sub">${sub.map(s => `<span>${s}</span>`).join('')}</div></div>
+    <div class="badges">${triageBadges(r)}${newest ? freshBadge(r) + mineBadge(r) : ''}</div>
+    <div class="acts">${newest ? `<button class="act arch" data-act="arch" data-page="${esc(r.page)}" data-archived="${r.archived ? 1 : 0}"${groupLocked ? lockAttr(true) : ` title="${r.archived
+      ? 'Move this review back to the list' : 'Move this review out of the list until the PR is reviewed again'}"`}>${r.archived ? 'Unarchive' : 'Archive'}<span class="sr-only"> ${esc(name)}</span></button>` : ''}
+    <button class="act del${armed.has(r.page) ? ' armed' : ''}" data-act="del" data-page="${esc(r.page)}"${r.locked ? lockAttr(true) : ' title="Delete this page with its triage and chats"'}>${armed.has(r.page)
+      ? 'Click again to delete' : `Delete<span class="sr-only"> ${esc(name)}</span>`}</button></div>
+  </div>`;
+}
+
+function card(g) {
+  const [head, ...older] = g;
+  const key = esc(head.group);
+  return `<section class="group">${row(head, true, g.some(r => r.locked))}${older.length ? `<details class="older" data-group="${key}"${openGroups.has(head.group) ? ' open' : ''}>
+    <summary data-sum="${key}">${plural(older.length, 'earlier render')}</summary>${older.map(r => row(r, false)).join('')}</details>` : ''}</section>`;
+}
+
+const fold = (kind, open, label, gs) => `<details class="fold" data-fold="${kind}"${open ? ' open' : ''}><summary data-sum="${kind}">${label}</summary>${gs.map(card).join('')}</details>`;
+
+function render() {
+  const gs = groups();
+  // A card is archived when its newest render is, so a new review of an archived PR comes back by itself.
+  const archived = gs.filter(g => g[0].archived);
+  const done = gs.filter(g => !g[0].archived && isDone(g[0]));
+  const active = gs.filter(g => !g[0].archived && !isDone(g[0]));
+  const away = [done.length && 'done', archived.length && 'archived'].filter(Boolean).join(' or ');
+  document.getElementById('lead').textContent = REVIEWS.length
+    ? `${plural(gs.length, 'review')}, newest first. Re-renders of the same PR are folded under it; PRs that are merged, closed or approved by you move to Done, and Archive puts a review away until its PR is reviewed again. Triage saves as you go; on a review page, Draft comments turns it into a GitHub review you approve before it is posted.`
+    : '';
+  rerender(document.getElementById('list'), !gs.length
+    ? '<div class="empty">No reviews yet. A page appears here when Claude finishes a code review, or run <code>/findings</code> after one.</div>'
+    : (active.length ? active.map(card).join('') : `<div class="empty">Nothing open. Every review is ${away}.</div>`)
+      + (done.length ? fold('done', doneOpen, `Done · ${done.length} (merged, closed or approved by you)`, done) : '')
+      + (archived.length ? fold('archived', archivedOpen, `Archived · ${archived.length}`, archived) : ''),
+    ['data-page', 'data-act', 'href', 'data-sum']);
+}
+
+// Which call put the error up. A failed load clears once the list loads again; a refused delete stays through the
+// reloads that follow it, until your next delete goes through or another error replaces it.
+let errFrom = '';
+function showError(text, from = 'action') {
+  const el = document.getElementById('err');
+  el.textContent = text;
+  el.hidden = !text;
+  errFrom = text ? from : '';
+}
+
+async function checkFreshness() {
+  const now = Date.now() / 1000;
+  const queue = groups().map(g => g[0]).filter(r => r.checkable && !r.archived && !checking.has(r.page)
+    && !(fresh[r.page] && now - fresh[r.page].checked_at < FRESH_MAX_AGE));
+  if (!queue.length) return;
+  queue.forEach(r => checking.add(r.page));
+  render();
+  const worker = async () => {
+    for (let r = queue.shift(); r; r = queue.shift()) {
+      try {
+        const res = await fetch('/api/freshness/' + encodeURIComponent(r.page), { cache: 'no-store' });
+        if (res.ok) fresh[r.page] = await res.json();
+      } catch (e) { /* keep the cached result */ }
+      checking.delete(r.page);
+      render();
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+}
+
+async function load(poll = false) {
+  clearTimeout(pollTimer);
+  try {
+    const r = await fetch('/api/reviews', { cache: 'no-store' });
+    if (!r.ok) return showError('The list did not load: the review server answered with an error. Run /findings list to restart it.', 'load');
+    REVIEWS = (await r.json()).reviews || [];
+  } catch (e) {
+    return showError('The review server is off. Run /findings list to restart it.', 'load');
+  }
+  if (errFrom === 'load') showError('');
+  // Re-read every 5 s while something runs, so a running badge clears when its job ends. A poll rebuilds the list
+  // only when it changed; any other load rebuilds it (a refused delete gives its button back).
+  const sig = JSON.stringify(REVIEWS);
+  if (!poll || sig !== listSig) render();
+  listSig = sig;
+  if (REVIEWS.some(r => r.running?.length)) pollTimer = setTimeout(() => { if (document.visibilityState === 'visible') load(true); }, 5000);
+  // A poll only watches the running badges; the PRs are re-checked when the list is opened or shown again.
+  if (!poll) checkFreshness();
+}
+
+// Focus the first of these pages' buttons that can take it (one in a closed group cannot), else the heading.
+function focusFirst(sel, pages) {
+  for (const page of pages) {
+    const b = list.querySelector(`${sel}[data-page="${CSS.escape(page)}"]`);
+    b?.focus();
+    if (b && document.activeElement === b) return;
+  }
+  document.getElementById('heading').focus();
+}
+
+async function remove(btn) {
+  const page = btn.dataset.page;
+  // Disabling the button drops focus to <body>. Once the list is back, focus goes to this Delete button if the review
+  // is still there (the delete was refused), else to the next row's, else the previous row's, else the heading.
+  const dels = [...list.querySelectorAll('button.del')], k = dels.indexOf(btn);
+  const then = [btn, ...dels.slice(k + 1), ...dels.slice(0, k).reverse()].map(b => b.dataset.page);
+  armed.delete(page);
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/reviews/' + encodeURIComponent(page), { method: 'DELETE', headers: { 'X-Finding-Viewer': '1' } });
+    const body = await r.json().catch(() => ({}));
+    if (r.ok) showError('');
+    else showError(r.status === 423 ? `Not deleted: ${body.error || LOCKED}`
+      : r.status === 409 ? "Can't delete while something runs on this review (a draft, a post or a side chat). Try again once it ends."
+      : body.error || 'Not deleted: the review server refused and gave no reason. Run /findings list to restart it, then try again.');
+  } catch (e) {
+    showError('Not deleted: the review server is off. Run /findings list to restart it.');
+  }
+  await load();
+  focusFirst('button.del', then);
+}
+
+// Screen readers hear the card move; clearing first makes the same message twice in a row announce again.
+function announce(text) {
+  const el = document.getElementById('status');
+  el.textContent = '';
+  setTimeout(() => { el.textContent = text; }, 50);
+}
+
+async function archive(btn) {
+  const page = btn.dataset.page, on = btn.dataset.archived !== '1';
+  const title = REVIEWS.find(r => r.page === page)?.title || 'The review';
+  // The card moves to the other list. Focus follows it when that list is open, else goes to the next card's button.
+  const all = [...list.querySelectorAll('button.arch')], k = all.indexOf(btn);
+  const then = [btn, ...all.slice(k + 1), ...all.slice(0, k).reverse()].map(b => b.dataset.page);
+  const what = on ? 'Not archived' : 'Not moved back';
+  btn.disabled = true;
+  let ok = false;
+  try {
+    const r = await fetch('/api/archive/' + encodeURIComponent(page), {
+      method: 'PUT', headers: { 'X-Finding-Viewer': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: on }),
+    });
+    ok = r.ok;
+    if (r.ok) showError('');
+    else if (r.status === 423) showError(`${what}: ${(await r.json().catch(() => ({}))).error || LOCKED}`);
+    else showError(r.status === 404 ? `${what}: the review server does not know this review, or is older than this page. Run /findings list to restart it, then try again.`
+      : `${what}: the review server refused and gave no reason. Run /findings list to restart it, then try again.`);
+  } catch (e) {
+    showError(`${what}: the review server is off. Run /findings list to restart it.`);
+  }
+  await load();
+  if (ok) announce(on ? `Archived: ${title}. It is under Archived at the bottom of the list.` : `${title} is back in the list.`);
+  focusFirst('button.arch', then);
+}
+
+const list = document.getElementById('list');
+list.addEventListener('click', e => {
+  // Marked, not disabled, so focus stays on it: a click says why instead.
+  const off = e.target.closest('button[aria-disabled="true"]');
+  if (off) return showError(`${off.classList.contains('del') ? 'Not deleted' : off.dataset.archived === '1' ? 'Not moved back' : 'Not archived'}: ${LOCKED}`);
+  const arch = e.target.closest('button.arch');
+  if (arch) return archive(arch);
+  const btn = e.target.closest('button.del');
+  if (!btn) return;
+  const page = btn.dataset.page;
+  if (armed.has(page)) return remove(btn);
+  armed.add(page);
+  render();
+  setTimeout(() => { if (armed.delete(page)) render(); }, 4000);
+});
+list.addEventListener('toggle', e => {
+  const d = e.target;
+  if (d.matches?.('details.fold')) d.dataset.fold === 'done' ? (doneOpen = d.open) : (archivedOpen = d.open);
+  if (!d.matches?.('details.older')) return;
+  d.open ? openGroups.add(d.dataset.group) : openGroups.delete(d.dataset.group);
+}, true);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+load();
+</script>
+</body>
+</html>

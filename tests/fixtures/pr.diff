@@ -1,0 +1,31 @@
+# shape: a PR diff with a modified file (two hunks, one with a removed line), a new file and a deleted file
+diff --git a/src/app/billing.py b/src/app/billing.py
+index 1111111..2222222 100644
+--- a/src/app/billing.py
++++ b/src/app/billing.py
+@@ -10,4 +10,5 @@ def total(items):
+     subtotal = 0
+-    for item in items:
++    for item in sorted(items):
++        # keep order stable
+         subtotal += item.price
+     return subtotal
+@@ -40,3 +41,2 @@ def tax(amount):
+     rate = 0.2
+-    rounded = round(amount, 2)
+     return amount * rate
+diff --git a/src/app/new_module.py b/src/app/new_module.py
+new file mode 100644
+--- /dev/null
++++ b/src/app/new_module.py
+@@ -0,0 +1,3 @@
++def hello():
++    return 'hi'
++
+diff --git a/src/app/old.py b/src/app/old.py
+deleted file mode 100644
+--- a/src/app/old.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-x = 1
+-y = 2
