@@ -4,6 +4,19 @@ When Claude finishes a code review in Claude Code, this opens a local page with 
 at. You mark each one **Post**, **Fix** or **Don't post**, a fork of the review session drafts the comments you chose,
 and you edit and post them as one GitHub review. Nothing is posted without your approval.
 
+![Reviewing PR #4242: post three findings, draft the comments, approve and post](docs/demo.gif)
+
+**Try it without a review of your own** (needs only Python and a browser; Claude is not used):
+
+```sh
+FINDING_VIEWER_EXTRACT=0 python3 finding_viewer.py examples/review.md
+```
+
+With no PR behind it, the review is of your own code: findings are **Fix** or **Won't fix**, and **Send fixes to
+session** hands the Fix ones back to Claude.
+
+![Triaging the same review on your own code](docs/demo-local.gif)
+
 ## Requirements
 
 - macOS or Linux, Python 3.9 or newer (standard library only: nothing to pip install)

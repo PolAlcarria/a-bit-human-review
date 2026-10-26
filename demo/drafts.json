@@ -1,0 +1,10 @@
+{"body": "Two of these block the merge; the retry loop is worth fixing in the same PR.",
+ "event": "REQUEST_CHANGES",
+ "comments": [
+  {"finding": "C1", "path": "examples/src/billing.py", "line": 14, "level": "must-fix",
+   "body": "A coupon larger than the subtotal makes `subtotal` negative, so `invoice_total` returns a credit that gets charged as a refund. Clamp it: `subtotal = max(subtotal - coupon[\"amount\"], 0)`."},
+  {"finding": "C2", "path": "examples/src/billing.py", "line": 12, "level": "must-fix",
+   "body": "`price` and `qty` arrive as floats from JSON, but `TAX_RATE` is a `Decimal`, so `subtotal * TAX_RATE` raises `TypeError`. Convert with `Decimal(str(price))` at the boundary."},
+  {"finding": "W1", "path": "examples/src/queue.py", "line": 11, "level": "should-fix",
+   "body": "After the last attempt this returns `None`, which reads as a successful empty reply. Re-raise the last `ConnectionError` so the caller can tell a lost payload from a delivered one."}
+ ]}
