@@ -1,0 +1,53 @@
+/* The diff review (diff.html). The layout, the chat and the code table come from viewer.css; this adds what only the
+   diff has: removed lines, the gaps between hunks, the selection bar and the thread bar above the chat. */
+.hint.pick { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+td.m { user-select: none; }
+td.c { user-select: text; }
+/* Removed lines: their text, not highlighted, between the lines they sat among. */
+tr.del td { font-size: 12.5px; }
+tr.del td.c { font-family: var(--mono); white-space: pre; padding-right: 16px; user-select: none; }
+tr.del td.m { color: var(--del); }
+tr.gap td { padding: 0; background: var(--hover); }
+.gapbar { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 2px 8px; font: 11px var(--sans); color: var(--muted); }
+.gapbar .more { display: inline-block; width: auto; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; }
+.gapbar .more:hover { border-color: var(--muted); }
+.file-status { font-weight: 600; }
+/* A selection that is not a thread yet. */
+tr.selrow td { background: color-mix(in srgb, var(--suggestion) 18%, var(--code-bg)) !important; }
+tr.selrow td.n { color: var(--suggestion); font-weight: 600; }
+/* The lines of a thread: its status colours them. */
+tr.t-open { --c: var(--suggestion); }
+tr.t-fix { --c: var(--fix); }
+tr.t-skip { --c: var(--keep); }
+tr.flag.cur td.g { box-shadow: inset 4px 0 var(--c); }
+.fb { cursor: pointer; background: none; }
+.fb.s-open { --fc: var(--suggestion); }
+.fb.s-fix { --fc: var(--fix); }
+.fb.s-skip { --fc: var(--keep); }
+.fb.cur { background: var(--fc); color: var(--code-bg); }
+/* The files in the list. */
+.item.file .fid { font-size: 11px; }
+.item.file .fid.st-A { color: var(--ok); }
+.item.file .fid.st-D { color: var(--del); }
+.item.file .fid.st-M { color: var(--warning); }
+.item.file { --c: var(--muted); }
+.item.is-fix .fid, .item.is-skip .fid { color: inherit; }
+.item.sev-finding.is-fix { --c: var(--fix); }
+.item.sev-finding.is-skip { --c: var(--keep); }
+/* The bar that offers what to do with the selected lines. */
+.selbar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center;
+  max-width: calc(100% - 32px); background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; box-shadow: 0 8px 28px rgb(0 0 0 / .25); font-size: 13px; }
+.selbar .where { color: var(--muted); }
+.selbar .where b { color: var(--text); }
+.selbar .tb.ask { background: var(--suggestion); border-color: var(--suggestion); color: var(--on-accent); }
+.selbar .tb.fix { color: var(--fix); border-color: var(--fix); }
+/* The thread above the chat: lines, status and the note for the session. */
+.thread { padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.thread .th-h { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 12px; }
+.thread .th-h code { color: var(--muted); overflow-wrap: anywhere; }
+.thread .tri-state { color: var(--muted); font-size: 12px; }
+.thread .tb { padding: 3px 10px; font-size: 12px; }
+.thread #note { margin-top: 0; min-height: 48px; max-height: 200px; }
+@media (max-width: 820px) {
+  .selbar { bottom: 8px; }
+}

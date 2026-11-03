@@ -86,6 +86,27 @@ def page_data(page: str) -> dict | None:
     return None
 
 
+def find_finding(page: str, data: dict, fid: str) -> dict | None:
+    """The finding ``fid`` of a page: one of its review's findings, or, on a diff review (no findings of its own), a
+    thread the reviewer started on selected lines, which the triage holds (``decisions.json``, ``user``: true)."""
+    found = next((f for f in data.get('findings') or [] if f['id'] == fid), None)
+    if found or data.get('kind') != 'diff':
+        return found
+    rec = ((load_decisions(decisions_path(page)) or {}).get('findings') or {}).get(fid)
+    if not isinstance(rec, dict) or rec.get('user') is not True:
+        return None
+    locations = []
+    for loc in rec.get('locations') or []:
+        if isinstance(loc, dict) and isinstance(loc.get('path'), str) and all(
+                isinstance(loc.get(k), int) and not isinstance(loc.get(k), bool) and loc[k] >= 1 for k in ('start', 'end')):
+            locations.append({'raw': f"{loc['path']}:{loc['start']}-{loc['end']}", 'path': loc['path'],
+                              'start': loc['start'], 'end': max(loc['start'], loc['end']), 'ambiguous': []})
+    if not locations:
+        return None
+    return {'id': fid, 'severity': 'finding', 'title': str(rec.get('title') or fid), 'body': str(rec.get('body') or ''),
+            'recurring': False, 'meta': {}, 'locations': locations}
+
+
 def reviewed_ref(data: dict) -> str | None:
     if 'ref' in data:
         return data['ref']

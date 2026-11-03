@@ -191,6 +191,46 @@ Loads highlight.js, marked and DOMPurify from cdnjs; everything else is inline.
   the banner.
 - "← All reviews" links to the list; it is hidden when the page is opened as a file.
 
+## Diff review
+
+`/findings diff [base]` (`finding_viewer.py diff`) builds a page of `kind: "diff"` with `render.build_diff_page` and opens
+it: every change of the current branch since the merge-base with the base, to be read by the developer before any
+review of findings. The base is the argument, else `default_base`. Nothing is sent to Claude to build it.
+
+- **What it shows**: `git diff --no-renames` from the merge-base. With uncommitted or untracked changes the page shows
+  the working tree (`ref: null`, like a review of it); on a clean branch it is pinned to HEAD, so the chat reads exactly
+  what the page shows. A moved file reads as a deleted file and an added one. Binary files, mode changes, links and
+  files over 1 MB untracked appear in the page's notes, not in the diff. The page keeps at most 300 files and 120000
+  lines (a file keeps its first 30000); what it leaves out is named in the notes. A base that is not a commit of the
+  repository, or one that starts with `-`, is refused with a message; a branch with no changes says so.
+- **Reading**: the page lists the changed files (A added, M modified, D deleted) and the threads. Only the hunks and
+  three lines of context show; the gaps between them open 20 lines at a time or whole. Removed lines show their text
+  between the lines they sat among. `[` and `]` change file, `c` focuses the chat, `h` hides it, Esc clears the selection.
+- **Threads**: clicking a line number selects it (shift-click extends, clicking the same line again clears); dragging
+  over the code selects the lines it covers. The selection bar offers **Ask Claude** (a thread, chat focused) and
+  **Request a change** (a thread with `status: "fix"`, note focused). A second selection of exactly the same lines opens
+  the thread already there. A thread is stored as a record of the triage (`decisions.json`) with `user: true`,
+  `locations: [{path, start, end}]`, `title`, `status` (`fix` change requested, `skip` resolved, null open) and `note`;
+  its chat is in `chat.json` under the same id, like a finding's. `store.find_finding` is the one place that turns a
+  record into the finding the chat reads; it checks the lines are whole numbers. A thread with a chat cannot be removed.
+- **Chat**: the first message carries the thread's state and note and the selected lines with 8 lines around them. The
+  system prompt is the diff review's (`chat.DIFF_SYSTEM_PROMPT`): the reviewer reads their own branch, most of it
+  written by an AI; a fenced `change` block is offered as **Use as change request**, which also sets the thread to
+  change requested. The ⚙ panel's context `fork` forks the session the diff was opened from, so Claude knows why it
+  wrote what it wrote.
+- **Hand-back**: **Send changes to session** (`POST /api/send-fixes/<page>`) and the inject hook use the same
+  `handoff.summarize`, worded for a diff: "N changes requested, N resolved, N open", the requested changes with their
+  lines and notes, and the instruction to make them and show what changed. Nothing is ever posted.
+- **No freshness or re-review**: a diff review has no findings to re-check (`rereview.unavailable`); after Claude changes
+  the code, `/findings diff` builds a new page. The list shows the page with its thread counts (to change / resolved).
+
+## Chat buttons
+
+The quick buttons under the chat come from `chat-buttons.json` in the data folder, per page kind (`finding`, `diff`),
+read by `buttons.load()` at every `GET /api/settings` (so the file is read again when a page is loaded). Entries that are
+not `{label, prompt}` text, or too long, are skipped and reported by `doctor`; a kind the file leaves out keeps the
+built-in buttons, and an empty list shows none. A page opened as a file shows the built-in buttons.
+
 ## Draft comments and posting
 
 Draft comments (toolbar button on PR reviews whose review transcript still exists; `n` with nothing left to decide

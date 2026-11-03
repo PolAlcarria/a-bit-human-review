@@ -238,6 +238,8 @@ def stale(page: str, payload: dict) -> str | None:
 
 def unavailable(data: dict) -> str | None:
     """Why the page cannot review new commits, or None when it can."""
+    if data.get('kind') == 'diff':
+        return 'A diff review has no findings to re-check: reload the diff to read the new changes.'
     if not store.reviewed_ref(data):
         return 'This page shows the working tree, so there is no reviewed commit to compare new commits with.'
     if not sessions.review_session(data):

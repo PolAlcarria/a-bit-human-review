@@ -73,6 +73,37 @@ doctor`): one PASS / WARN / FAIL line per requirement, the hooks, the command, t
 `/findings list` opens all reviews, `/findings path/to/report.md` a saved report, `/findings decisions` prints your
 latest triage. Reviews of a local branch or working tree work too, not only PRs.
 
+## Reading what Claude wrote: the diff review
+
+Before (or instead of) a code review that hunts for problems, read the code yourself. `/findings diff [base]` opens
+every change of the current branch since its base (the repo's base branch, or the one you name), committed or not, as
+one diff you read line by line, like a draft PR that does not exist yet.
+
+- Click a line number (shift-click for a range) or drag over the code, then **Ask Claude** or **Request a change**.
+  Each selection is a thread with the same side chat as a review's findings: Claude gets those lines with the code
+  around them, can read the rest of the repo, and cannot edit anything.
+- A thread is open (a question), **change requested** (you want the code changed) or **resolved**. Your note on a
+  change request says what the code should do instead.
+- **Send changes to session** hands every requested change to the Claude Code session the diff was opened from, at
+  once; or write in that session and your next message carries them.
+- The page shows the code as it was when you opened it. After Claude changes the code, run `/findings diff` again.
+
+## Your own chat buttons
+
+The buttons under the chat are yours to set. Put `chat-buttons.json` in the data folder (`doctor` prints its path):
+
+```json
+{
+  "finding": [{"label": "Is it real?", "prompt": "Is this a real problem? Check it against the code."}],
+  "diff": [{"label": "Too clever", "prompt": "Is this more complex than it needs to be? Say what I would delete."}]
+}
+```
+
+`finding` is for a code review's findings, `diff` for the diff review. A kind you leave out keeps the built-in buttons;
+`[]` shows none. Up to 12 buttons per kind, a label up to 40 characters, a prompt up to 2000. A click sends the prompt
+as your message. `doctor` warns about an entry it had to skip. Reload the page after editing the file. A starting
+point is in [examples/chat-buttons.json](examples/chat-buttons.json).
+
 ## What it costs and what it touches
 
 - **Reading the findings:** a headless `claude -p` (Sonnet) reads them out of any review format and finds the code

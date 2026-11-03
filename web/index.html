@@ -128,11 +128,19 @@ function freshBadge(r) {
 
 function triageBadges(r) {
   const decided = r.post + r.skip + (r.fix || 0);
-  const out = [`<span class="badge">${plural(r.findings, 'finding')}</span>`];
-  out.push(decided ? `<span class="badge${decided === r.findings ? ' ok' : ''}">${decided}/${r.findings} decided</span>` : '<span class="badge">not triaged</span>');
-  if (r.post) out.push(`<span class="badge post">${r.post} to post</span>`);
-  if (r.fix) out.push(`<span class="badge fix" title="Findings in your own code, to fix before anyone else reviews it">${r.fix} to fix</span>`);
-  if (r.fixed) out.push(`<span class="badge" title="Findings the PR's new commits fixed: not counted above">${r.fixed} fixed since</span>`);
+  // A diff review has threads you started, not findings: the ones you did not mark are open questions.
+  const out = [];
+  if (r.kind === 'diff') {
+    out.push('<span class="badge" title="Read the diff of the branch line by line">Diff review</span>', `<span class="badge">${plural(r.findings, 'thread')}</span>`);
+    if (r.fix) out.push(`<span class="badge fix" title="Changes you asked Claude to make">${r.fix} to change</span>`);
+    if (r.skip) out.push(`<span class="badge">${r.skip} resolved</span>`);
+  } else {
+    out.push(`<span class="badge">${plural(r.findings, 'finding')}</span>`);
+    out.push(decided ? `<span class="badge${decided === r.findings ? ' ok' : ''}">${decided}/${r.findings} decided</span>` : '<span class="badge">not triaged</span>');
+    if (r.post) out.push(`<span class="badge post">${r.post} to post</span>`);
+    if (r.fix) out.push(`<span class="badge fix" title="Findings in your own code, to fix before anyone else reviews it">${r.fix} to fix</span>`);
+    if (r.fixed) out.push(`<span class="badge" title="Findings the PR's new commits fixed: not counted above">${r.fixed} fixed since</span>`);
+  }
   // A re-review of the PR's new commits names itself: the review is locked while it runs.
   if (r.running?.length) out.push(`<span class="badge run" title="Running now: ${esc(r.running.join(', '))}"><span class="dot" aria-hidden="true"></span>${r.locked ? 'Reviewing new commits' : `${r.running.length} running`}</span>`);
   if (r.chats) out.push(`<span class="badge">💬 ${plural(r.chats, 'chat')}</span>`);

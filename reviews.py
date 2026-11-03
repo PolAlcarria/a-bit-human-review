@@ -44,6 +44,12 @@ def viewer_template() -> str:
     return _inline(_web('viewer.html'), SHARED_CSS='shared.css', CSS='viewer.css', JS='viewer.js')
 
 
+def diff_template() -> str:
+    """The diff review's template: web/diff.html with shared.css, viewer.css (the layout and chat it shares with the
+    review page), diff.css and diff.js put in."""
+    return _inline(_web('diff.html'), SHARED_CSS='shared.css', VIEWER_CSS='viewer.css', CSS='diff.css', JS='diff.js')
+
+
 def index_page(nonce: str) -> str:
     """The list of reviews as one file: web/index.html with shared.css put in, its script marked with ``nonce``."""
     return _inline(_web('index.html'), SHARED_CSS='shared.css').replace('__NONCE__', nonce)
@@ -53,7 +59,8 @@ def fill_template(data: dict, nonce: str = '') -> str:
     """The page for this review data. ``nonce`` marks the inline script for the server's CSP; a file on disk gets ''."""
     payload = json.dumps(data, ensure_ascii=False).replace('<', '\\u003c')
     # The nonce goes in before any review text, so text that happens to contain the placeholder is left alone.
-    page = (viewer_template().replace('__NONCE__', nonce)
+    template = diff_template() if data.get('kind') == 'diff' else viewer_template()
+    page = (template.replace('__NONCE__', nonce)
             .replace('__TITLE__', html.escape(data['title'])))
     return page.replace('/*__DATA__*/', payload)
 
@@ -141,11 +148,14 @@ def list_reviews() -> list[dict]:
         decided, fixed = dec.get('findings') or {}, rereview.fixed(data)
         # A finding the new commits fixed is not counted: there is nothing left to decide or post for it.
         statuses = [(decided.get(f['id']) or {}).get('status') for f in data.get('findings', []) if f['id'] not in fixed]
+        if data.get('kind') == 'diff':
+            # No findings of its own: the reviewer's threads (user records of the triage) are what there is to count.
+            statuses = [v.get('status') for v in decided.values() if isinstance(v, dict) and v.get('user') is True]
         threads = (chat_state.get('threads') or {}).values()
         owner = dec.get('session_id') or chat_state.get('session_id') or data.get('session_id')
         repo, pr, ref = data.get('repo_name') or '', data['pr'], store.reviewed_ref(data)
         rows.append({
-            'page': page, 'title': data['title'], 'subtitle': data.get('subtitle', ''), 'repo': repo, 'pr': pr,
+            'page': page, 'kind': data.get('kind') or 'review', 'title': data['title'], 'subtitle': data.get('subtitle', ''), 'repo': repo, 'pr': pr,
             'pr_url': f"{data['github']}/pull/{pr}" if pr and data.get('github') else None,
             'pr_author': data.get('pr_author'),
             'group': group_key(data), 'archived': page in archived,

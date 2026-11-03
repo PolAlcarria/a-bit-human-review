@@ -31,6 +31,7 @@ STATE = DATA / 'state.json'
 INJECT_STATE = DATA / 'inject_state.json'
 SETTINGS = DATA / 'settings.json'
 CONFIG = DATA / 'config.json'
+CHAT_BUTTONS = DATA / 'chat-buttons.json'
 # What migrate_if_needed moves from CODE, out/ last: until out/ is in DATA, the next run finishes an interrupted move.
 # clones/ and worktrees/ stay behind: they are caches, rebuilt in DATA on demand.
 MOVED = ('state.json', 'inject_state.json', 'settings.json', 'viewer.log', 'out')

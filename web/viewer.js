@@ -1367,6 +1367,15 @@ async function loadSettings() {
   } catch (e) { /* keep defaults */ }
   renderSettings();
   renderKeys();
+  renderQuick();
+}
+
+// The quick buttons under the chat: the developer's own (chat-buttons.json), else the ones in the page.
+function renderQuick() {
+  const list = SETTINGS.buttons?.finding;
+  if (!Array.isArray(list)) return;
+  document.getElementById('quick').innerHTML = list.map(b => `<button data-q="${esc(b.prompt)}">${esc(b.label)}</button>`).join('');
+  syncLock();
 }
 
 async function saveSettings() {

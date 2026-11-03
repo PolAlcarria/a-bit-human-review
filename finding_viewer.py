@@ -7,6 +7,8 @@
   finding_viewer.py open [REPORT.md]   Latest review in this session, else the latest saved review report,
                                        else the list of all reviews.
   finding_viewer.py list               Open the list of all reviews.
+  finding_viewer.py diff [BASE]        Open the diff review: every change of this branch since BASE (default: the repo's
+                                       base branch), committed or not, to read line by line with a side chat.
   finding_viewer.py decisions          Print the latest Post / Don't post triage and notes.
   finding_viewer.py inject             UserPromptSubmit hook. Hands new triage to Claude.
   finding_viewer.py serve              Run the localhost server that serves pages and stores triage.
@@ -96,6 +98,22 @@ def cmd_open(args: list[str]) -> int:
     return 0
 
 
+def cmd_diff(args: list[str]) -> int:
+    """Build the diff review of the current repo's branch and open it. Prints why when there is nothing to show."""
+    if len(args) > 1:
+        print('Usage: /findings diff [base branch or commit]')
+        return 1
+    spec = {'kind': 'diff', 'cwd': os.getcwd(), 'base': args[0] if args else None, 'open': True,
+            'session_id': os.environ.get('CLAUDE_CODE_SESSION_ID')}
+    try:
+        out = render_and_open(spec)
+    except render.DiffError as exc:
+        print(str(exc))
+        return 1
+    print(f"Opened the diff review ({spec['title']}): {triage.page_url(out)}")
+    return 0
+
+
 def cmd_list(message: str = 'Opened all reviews') -> int:
     if not triage.ensure_server():
         print(f'The review server did not start; see {paths.LOG}')
@@ -169,6 +187,8 @@ def main(argv: list[str]) -> int:
         return 0
     if cmd == 'list':
         return cmd_list()
+    if cmd == 'diff':
+        return cmd_diff(argv[2:])
     if cmd == 'open':
         return cmd_open(argv[2:])
     return cmd_open(argv[1:])
