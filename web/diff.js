@@ -261,16 +261,41 @@ function reveal(path) {
 const filesIn = node => node.files.length + [...node.dirs.values()].reduce((n, d) => n + filesIn(d), 0);
 const allFilesIn = node => [...node.files, ...[...node.dirs.values()].flatMap(allFilesIn)];
 
+// Icons for the list of files, drawn in the text colour unless a rule colours them.
+const SVG = (d, cls) => `<svg class="ico ${cls}" viewBox="0 0 16 16" aria-hidden="true" focusable="false">${d}</svg>`;
+const ICON = {
+  chevron: SVG('<path d="M6 3.5 10.5 8 6 12.5"/>', 'chev'),
+  folder: SVG('<path d="M1.75 3.25h4.1l1.5 1.5h6.9v8H1.75z"/>', 'folder'),
+  folderOpen: SVG('<path d="M1.75 12.75v-9.5h4.1l1.5 1.5h5.4v1.75"/><path d="M1.75 12.75 3.6 7h11l-1.85 5.75z"/>', 'folder'),
+  file: SVG('<path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3"/>', 'file'),
+  chat: SVG('<path d="M2.25 3.25h11.5v7.5h-6.5l-3 2.5v-2.5h-2z"/>', 'chatico'),
+};
+// A tint per kind of file, so the list reads at a glance; anything else stays the plain file colour.
+const FILE_KIND = [[/\.(py|pyi)$/, 'py'], [/\.(ts|tsx|mts|cts)$/, 'ts'], [/\.(js|jsx|mjs|cjs)$/, 'js'],
+  [/\.(css|scss|sass|less)$/, 'css'], [/\.(html?|vue|svelte)$/, 'html'], [/\.(md|mdx|rst|txt)$/, 'doc'],
+  [/\.(json|ya?ml|toml|ini|env|lock)$|(^|\/)\.[^/]*rc$/, 'conf'], [/\.(sh|bash|zsh|fish|ps1)$/, 'sh'],
+  [/\.(go|rs|java|kt|swift|rb|php|c|h|cc|cpp|hpp|cs|scala)$/, 'code'], [/(^|\/)(Dockerfile|Makefile)[^/]*$/, 'conf']];
+const fileKind = p => (FILE_KIND.find(([re]) => re.test(p)) || [, 'plain'])[1];
+// The name, cut with an ellipsis when it does not fit, while its extension stays in sight.
+function nameHtml(name) {
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 && name.length - dot <= 8 ? name.slice(dot) : '';
+  return `<span class="name"><span class="stem">${esc(ext ? name.slice(0, dot) : name)}</span>${ext ? `<span class="ext">${esc(ext)}</span>` : ''}</span>`;
+}
+const STATUS_WORD = { A: 'added', D: 'deleted', M: 'modified' };
+const indent = depth => `style="--depth:${depth}"`;
+const threadMark = (n, inside) => n
+  ? `<span class="tcount" role="img" aria-label="${phrase(n, 'thread', 'threads')}${inside ? ' inside' : ''}" title="${phrase(n, 'thread', 'threads')}${inside ? ' inside' : ''}">${ICON.chat}${n}</span>` : '';
+
 function fileRow(p, depth) {
   const f = D.files[p];
   const del = Object.values(f.removed_text || {}).reduce((n, l) => n + l.length, 0);
   const n = threadsIn(p).length;
   const kind = { added: 'A', deleted: 'D' }[f.status] || 'M';
-  const pad = 16 + depth * 14;
-  return `<button class="item file${p === curPath ? ' sel' : ''}" data-file="${esc(p)}" style="padding-left:${pad}px" title="${esc(p)}"${p === curPath ? ' aria-current="true"' : ''}>
-    <span class="fid st-${kind}" title="${esc(f.status || 'modified')}">${kind}</span><span class="t">${esc(base(p))}</span>
-    <span class="st">${n ? `<span class="chat" role="img" aria-label="${phrase(n, 'thread', 'threads')}" title="${phrase(n, 'thread', 'threads')}">💬${n}</span>` : ''}</span>
-    <span class="l">+${f.added.length} −${del}</span></button>`;
+  return `<button class="item file row st-${kind}${p === curPath ? ' sel' : ''}" data-file="${esc(p)}" ${indent(depth)} title="${esc(p)} · ${STATUS_WORD[kind]} · +${f.added.length} −${del}"${p === curPath ? ' aria-current="true"' : ''}>
+    <span class="twist"></span><span class="k-${fileKind(p)}">${ICON.file}</span>${nameHtml(base(p))}${threadMark(n)}
+    <span class="delta"><span class="plus">+${f.added.length}</span><span class="minus">−${del}</span></span>
+    <span class="stbadge" aria-label="${STATUS_WORD[kind]}">${kind}</span></button>`;
 }
 function dirRows(node, depth, searching) {
   let html = '';
@@ -283,10 +308,9 @@ function dirRows(node, depth, searching) {
     const inside = allFilesIn(dir);
     const talk = inside.reduce((n, p) => n + threadsIn(p).length, 0);
     const holdsCur = !open && inside.includes(curPath);
-    html += `<button class="item dir${holdsCur ? ' sel' : ''}" data-dir="${esc(top.path)}" aria-expanded="${open}" style="padding-left:${16 + depth * 14}px" title="${esc(dir.path)}">
-      <span class="fid caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="t">${esc(label)}/</span>
-      <span class="st">${!open && talk ? `<span class="chat" role="img" aria-label="${phrase(talk, 'thread', 'threads')} inside" title="${phrase(talk, 'thread', 'threads')} inside">💬${talk}</span>` : ''}</span>
-      <span class="l">${phrase(inside.length, 'file', 'files')}</span></button>`;
+    html += `<button class="item dir row${holdsCur ? ' sel' : ''}${open ? ' open' : ''}" data-dir="${esc(top.path)}" aria-expanded="${open}" ${indent(depth)} title="${esc(dir.path)}/ · ${phrase(inside.length, 'file', 'files')}">
+      <span class="twist">${ICON.chevron}</span>${open ? ICON.folderOpen : ICON.folder}<span class="name"><span class="stem">${esc(label)}</span></span>
+      ${!open ? threadMark(talk, true) : ''}<span class="count">${inside.length}</span></button>`;
     if (open) html += dirRows(dir, depth + 1, searching) + sortedFiles(dir).map(p => fileRow(p, depth + 1)).join('');
   }
   return html;
