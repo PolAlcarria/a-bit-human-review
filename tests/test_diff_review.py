@@ -153,6 +153,11 @@ class DiffPageTest(unittest.TestCase):
         self.assertNotIn('/*__', html)
         self.assertNotIn('__NONCE__', html)
 
+    def test_the_diff_page_has_the_file_search_and_the_folder_fold(self):
+        html = reviews.page_html(self.page).decode()
+        for needle in ('id="filesearch"', 'id="files-fold"', 'id="files"', 'id="threads"'):
+            self.assertIn(needle, html)
+
     def test_a_review_page_still_gets_the_review_template(self):
         html = reviews.fill_template(support.sample_page('20261019-120000-x'))
         self.assertIn('id="send-fixes"', html)

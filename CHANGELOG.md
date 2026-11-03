@@ -7,6 +7,12 @@
   comes back **dismissed**, is marked Don't post, and is not raised again in later re-reviews, neither as still
   applying nor as a new finding. The page tags it "Dismissed on the PR" with who declined it and why.
 
+## [0.2.1] - 2026-11-03
+
+### Added
+- Diff review: the list of changed files is a tree of folders that fold (with Fold all / Unfold all, remembered per page),
+  and a search box (`/`) filters the files by name.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

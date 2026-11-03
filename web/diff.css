@@ -25,7 +25,16 @@ tr.flag.cur td.g { box-shadow: inset 4px 0 var(--c); }
 .fb.s-fix { --fc: var(--fix); }
 .fb.s-skip { --fc: var(--keep); }
 .fb.cur { background: var(--fc); color: var(--code-bg); }
-/* The files in the list. */
+/* The files in the list: folders that fold, and the search. */
+nav h2.fixed-h .linkbtn { margin-left: auto; font-size: 11px; padding: 0 7px; text-transform: none; letter-spacing: 0; }
+.filesearch { padding: 0 12px 6px; position: sticky; top: 0; background: var(--panel); z-index: 2; }
+.filesearch input { width: 100%; font: 13px var(--sans); padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--code-bg); color: var(--text); }
+.filesearch input:focus { outline: 2px solid var(--suggestion); border-color: var(--suggestion); }
+.item.dir { --c: var(--muted); }
+.item.dir .caret { color: var(--muted); font-size: 12px; width: 1em; text-align: center; }
+.item.dir .t { font-weight: 600; }
+.item.dir.sel { background: var(--hover); }
+.empty.small { padding: 12px 16px; font-size: 12px; text-align: left; }
 .item.file .fid { font-size: 11px; }
 .item.file .fid.st-A { color: var(--ok); }
 .item.file .fid.st-D { color: var(--del); }

@@ -82,6 +82,7 @@ one diff you read line by line, like a draft PR that does not exist yet.
 - Click a line number (shift-click for a range) or drag over the code, then **Ask Claude** or **Request a change**.
   Each selection is a thread with the same side chat as a review's findings: Claude gets those lines with the code
   around them, can read the rest of the repo, and cannot edit anything.
+- The changed files are listed as folders you can fold, with a search by name (`/` focuses it).
 - A thread is open (a question), **change requested** (you want the code changed) or **resolved**. Your note on a
   change request says what the code should do instead.
 - **Send changes to session** hands every requested change to the Claude Code session the diff was opened from, at

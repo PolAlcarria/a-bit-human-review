@@ -203,6 +203,11 @@ review of findings. The base is the argument, else `default_base`. Nothing is se
   files over 1 MB untracked appear in the page's notes, not in the diff. The page keeps at most 300 files and 120000
   lines (a file keeps its first 30000); what it leaves out is named in the notes. A base that is not a commit of the
   repository, or one that starts with `-`, is refused with a message; a branch with no changes says so.
+- **Files**: the list shows the changed files as folders that fold (▾/▸; a folder that holds only another folder shows as
+  one row, `src/app/`), folders before files, each by name. **Fold all** / **Unfold all** acts on every folder, and the
+  folded ones are remembered per page in the browser (`localStorage`). The search box (`/` focuses it) keeps the files
+  whose path contains every word typed, in any case, with their folders open; Enter opens the first one, Esc clears it.
+  Opening a file or a thread unfolds the folders above it, and `[`/`]` walk the files in the order of the list.
 - **Reading**: the page lists the changed files (A added, M modified, D deleted) and the threads. Only the hunks and
   three lines of context show; the gaps between them open 20 lines at a time or whole. Removed lines show their text
   between the lines they sat among. `[` and `]` change file, `c` focuses the chat, `h` hides it, Esc clears the selection.
