@@ -1,11 +1,12 @@
 """Re-review in rereview.py: the ids new findings get (next_id), the fork's answer checked (parse_answer), and the triage
-carried to a new head (carry_triage, which uses default_anchor)."""
+carried to a new head (carry_triage, which uses default_anchor), and the PR comments a finding can be dismissed by
+(format_comments)."""
 import support  # noqa: F401  first: points the tool at a scratch environment before it is imported
 import copy
 import unittest
 
 import freshness
-from rereview import carry_triage, default_anchor, next_id, parse_answer
+from rereview import carry_triage, default_anchor, format_comments, new_findings, next_id, parse_answer
 
 DATA = {'findings': [{'id': 'C1', 'severity': 'critical'}, {'id': 'W1', 'severity': 'warning'},
                      {'id': 'S1', 'severity': 'suggestion', 'rereview': {'status': 'fixed', 'at': 'h1'}}]}
@@ -123,11 +124,11 @@ class ParseAnswerTest(unittest.TestCase):
 
     def test_unknown_status_is_refused(self):
         self.assertEqual(self.error({'findings': [item('C1', 'gone')]}),
-                         "C1 has the status 'gone', which is not one of still_applies, changed, fixed, new")
+                         "C1 has the status 'gone', which is not one of still_applies, changed, fixed, dismissed, new")
 
     def test_unknown_status_on_an_entry_without_id_names_the_entry(self):
         self.assertEqual(self.error({'findings': [item('', 'gone')]}),
-                         "entry 1 has the status 'gone', which is not one of still_applies, changed, fixed, new")
+                         "entry 1 has the status 'gone', which is not one of still_applies, changed, fixed, dismissed, new")
 
     def test_id_not_on_the_page_cannot_be_fixed(self):
         self.assertEqual(self.error({'findings': [item('Z9', 'fixed')]}),
@@ -277,3 +278,71 @@ class CarryTriageTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DismissedTest(unittest.TestCase):
+    """A finding a comment on the PR declined: dismissed, Don't post, and not asked about again."""
+
+    def test_dismissed_is_a_status_the_answer_may_give_with_its_why(self):
+        out = {'findings': [item('C1', 'dismissed', why='  @dev-one: rounding is   intended '), item('W1', 'fixed')]}
+        a = parse_answer(out, DATA, set(TAKEN))[0]
+        self.assertEqual((a['status'], a['why']), ('dismissed', '@dev-one: rounding is intended'))
+
+    def test_finding_dismissed_before_may_be_left_out(self):
+        data = {'findings': [{'id': 'C1', 'severity': 'critical', 'rereview': {'status': 'dismissed', 'at': 'h1'}},
+                             {'id': 'W1', 'severity': 'warning'}]}
+        self.assertEqual([a['id'] for a in parse_answer({'findings': [item('W1', 'still_applies')]}, data, set())],
+                         ['W1'])
+
+    def test_dismissed_finding_keeps_the_review_words_and_records_why(self):
+        data = {'findings': [{'id': 'C1', 'severity': 'critical', 'title': 'Rounding', 'body': 'b1', 'locations': []}]}
+        answer = [{'id': 'C1', 'status': 'dismissed', 'severity': 'warning', 'title': 'other', 'body': 'other',
+                   'recurring': None, 'why': 'author: intended', 'anchors': []}]
+        out, counts = new_findings(data, answer, {}, 'h2')
+        self.assertEqual((out[0]['title'], out[0]['severity'], out[0]['rereview']),
+                         ('Rounding', 'critical', {'status': 'dismissed', 'at': 'h2', 'why': 'author: intended'}))
+        self.assertEqual(counts['dismissed'], 1)
+
+    def carry(self, status, old_rr=None, head='h2'):
+        f = {'id': 'C1', 'severity': 'critical', 'title': 'Rounding', 'body': 'b1', 'locations': [loc(20, 22)]}
+        old = page([{**f, **({'rereview': old_rr} if old_rr else {})}], [[18, 25]])
+        new = page([{**f, 'rereview': {'status': 'dismissed', 'at': 'h2'}}], [[18, 25]])
+        dec = {'findings': {'C1': {'status': status, 'note': 'n', 'mode': 'note', 'recheck': 'h1'}}}
+        return carry_triage(dec, old, new, {}, head)['findings']['C1']
+
+    def test_newly_dismissed_finding_becomes_dont_post_and_keeps_its_note(self):
+        c1 = self.carry('post')
+        self.assertEqual((c1['status'], c1['note']), ('skip', 'n'))
+        self.assertNotIn('recheck', c1)
+
+    def test_undecided_dismissed_finding_becomes_dont_post(self):
+        self.assertEqual(self.carry(None)['status'], 'skip')
+
+    def test_finding_dismissed_before_keeps_what_the_reviewer_chose_since(self):
+        self.assertEqual(self.carry('post', old_rr={'status': 'dismissed', 'at': 'h1'})['status'], 'post')
+
+
+class FormatCommentsTest(unittest.TestCase):
+    def test_threads_with_replies_then_the_conversation(self):
+        review = [{'id': 2, 'in_reply_to_id': 1, 'user': {'login': 'dev-one'}, 'body': "We won't change\nthis.",
+                   'created_at': '2026-10-19T10:00:00Z'},
+                  {'id': 1, 'path': BILL, 'line': 41, 'user': {'login': 'rev'}, 'body': 'Loop is O(n^2)',
+                   'created_at': '2026-10-18T10:00:00Z'},
+                  {'id': 3, 'path': BILL, 'line': None, 'original_line': 7, 'user': {'login': 'rev'}, 'body': 'Name',
+                   'created_at': '2026-10-18T11:00:00Z'}]
+        talk = [{'user': {'login': 'dev-one'}, 'body': 'Leaving the rounding as is.', 'created_at': '2026-10-19T12:00:00Z'},
+                {'user': {'login': 'bot'}, 'body': '  ', 'created_at': '2026-10-19T13:00:00Z'}]
+        lines = format_comments(review, talk).splitlines()
+        self.assertTrue(lines[0].startswith('Comments on the PR, oldest first'))
+        self.assertEqual(lines[1:], [f'- {BILL}:41, @rev: Loop is O(n^2)', "  - reply by @dev-one: We won't change this.",
+                                     f'- {BILL}:7, @rev: Name', 'On the conversation:',
+                                     '- @dev-one: Leaving the rounding as is.'])
+
+    def test_no_comments_is_empty(self):
+        self.assertEqual(format_comments([], []), '')
+
+    def test_long_comments_are_cut(self):
+        talk = [{'user': {'login': 'a'}, 'body': 'x' * 5000, 'created_at': str(i)} for i in range(30)]
+        text = format_comments([], talk)
+        self.assertLess(len(text), 23000)
+        self.assertTrue(text.endswith('- … (more comments, left out)'))

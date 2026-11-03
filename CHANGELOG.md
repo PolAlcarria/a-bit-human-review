@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Review the new commits reads the PR's comments: a finding someone on the PR declined (the change will not be made)
+  comes back **dismissed**, is marked Don't post, and is not raised again in later re-reviews, neither as still
+  applying nor as a new finding. The page tags it "Dismissed on the PR" with who declined it and why.
+
 ## [0.2.1] - 2026-11-03
 
 ### Added

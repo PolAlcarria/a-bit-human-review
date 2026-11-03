@@ -465,11 +465,15 @@ new head (decisions E1–E4 of 2026-10-19).
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a detached worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
   setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
-  anchors, body and what the new commits touched, and the triage; it asks the fork to review what the commits changed
-  and to re-check each finding. `--json-schema` returns per finding an id, a status (`still_applies`, `changed`,
-  `fixed`, `new`), title, severity, body, recurring, anchors at the new head and, for `fixed`, a one-line why.
-  `parse_answer()` checks it like `extract.py`: a status outside the four, an id the page does not have, a finding
-  twice, or an open finding left out fails the job with that reason. New findings get the next id for their severity
+  anchors, body and what the new commits touched, the PR's comments (`pr_comments()`: every review thread with its
+  replies, then the conversation, read with `gh api …/pulls/N/comments` and `…/issues/N/comments`, at most 20 000
+  characters; a PR whose comments cannot be read dismisses nothing), and the triage; it asks the fork to review what
+  the commits changed and to re-check each finding. `--json-schema` returns per finding an id, a status
+  (`still_applies`, `changed`, `fixed`, `dismissed`, `new`), title, severity, body, recurring, anchors at the new head
+  and, for `fixed`, a one-line why (for `dismissed`, who declined it on the PR and why). `dismissed` means a comment
+  on the PR says the change will not be made; a problem a comment already declined is not reported as new.
+  `parse_answer()` checks it like `extract.py`: a status outside the five, an id the page does not have, a finding
+  twice, or an open finding left out (one fixed or dismissed before may be) fails the job with that reason. New findings get the next id for their severity
   letter after every id the page ever showed (findings never leave the page; triage and chat ids count too).
 - **The update**: `git diff -U0 -M <old> <new>` gives `freshness.map_line()`. The findings, at the new head, go through
   `render.build_page()` with `reviewed_sha` = the new head and the page's own title, PR, repo, folder, session ids and
@@ -478,9 +482,11 @@ new head (decisions E1–E4 of 2026-10-19).
   `discarded_drafts`, appended) and each finding its `rereview` (`status`, `at`, `why`). `carry_triage()` keeps each
   decision, note and mode by id; a saved anchor that differs from the old default line was picked by the reviewer and
   moves through the diff when its line is unchanged and its file is still one of the finding's, else it goes back to the
-  default and `anchor_reset` says so; a `changed` finding marked Post gets `recheck`; new findings start undecided;
+  default and `anchor_reset` says so; a `changed` finding marked Post gets `recheck`; a finding newly `dismissed`
+  becomes Don't post (`skip`; one dismissed in an earlier re-review keeps what the reviewer chose since, and the
+  hand-off says "Dismissed on the PR … Do not raise it again" under it); new findings start undecided;
   `updated` is set to now, so no copy a browser kept wins over it; an `anchor_reset` from an earlier re-review goes. A
-  finding that still applies, or is fixed, keeps the review's own title, body and severity; only a `changed` or `new`
+  finding that still applies, is fixed or dismissed keeps the review's own title, body and severity; only a `changed` or `new`
   one takes the fork's words. Each side chat on a finding gets a line ([Side chat](#side-chat)), the cached check
   becomes `current` ([Freshness](#freshness)), confirmed unposted drafts are discarded with their fork (only if still
   unposted: a posted state and its link stay).
