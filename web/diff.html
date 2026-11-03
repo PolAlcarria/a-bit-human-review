@@ -31,7 +31,12 @@
 </header>
 <div class="banner notes" id="notes" hidden></div>
 <div class="layout">
-  <nav id="list" aria-label="Changed files and threads" tabindex="-1"></nav>
+  <nav id="list" aria-label="Changed files and threads" tabindex="-1">
+    <div id="threads"></div>
+    <h2 class="sev-finding fixed-h"><span class="dot"></span><span id="files-h">Files</span><button type="button" class="linkbtn small" id="files-fold" hidden>Fold all</button></h2>
+    <div class="filesearch"><input type="search" id="filesearch" placeholder="Search files…  ( / )" aria-label="Search the changed files by name" autocomplete="off" spellcheck="false"></div>
+    <div id="files"></div>
+  </nav>
   <main id="detail"></main>
   <aside id="chat">
     <div class="chat-h"><b id="chat-title">Discuss with Claude</b>

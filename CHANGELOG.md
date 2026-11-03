@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-03
+
+### Added
+- Diff review: the list of changed files is a tree of folders that fold (with Fold all / Unfold all, remembered per page),
+  and a search box (`/`) filters the files by name.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

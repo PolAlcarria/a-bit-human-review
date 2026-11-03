@@ -7,7 +7,6 @@ const SERVED = location.protocol === 'http:' || location.protocol === 'https:';
 const LS_KEY = 'finding-viewer:' + D.page;
 const CHAT_HIDDEN_KEY = 'finding-viewer:chat-hidden';
 const STEP = 20, CTX = 3;
-const PATHS = Object.keys(D.files).sort();
 // The buttons under the chat when the server cannot say (a page opened as a file): the built-in ones (buttons.py).
 const DEFAULT_BUTTONS = [
   { label: 'Explain', prompt: 'Explain what this code does and why it may have been written this way.' },
@@ -21,6 +20,28 @@ const base = p => p.split('/').pop();
 const dirOf = p => p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : '';
 const phrase = (k, one, many) => `${k} ${k === 1 ? one : many}`;
 const scrollBehavior = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+// The folders of the changed files, as the list shows them: folders before files, each by name.
+function buildTree(paths) {
+  const root = { name: '', path: '', dirs: new Map(), files: [] };
+  for (const p of paths) {
+    const parts = p.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = parts.slice(0, i + 1).join('/');
+      if (!node.dirs.has(parts[i])) node.dirs.set(parts[i], { name: parts[i], path: key, dirs: new Map(), files: [] });
+      node = node.dirs.get(parts[i]);
+    }
+    node.files.push(p);
+  }
+  return root;
+}
+const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }) || (a < b ? -1 : a > b ? 1 : 0);
+const sortedDirs = node => [...node.dirs.values()].sort((a, b) => byName(a.name, b.name));
+const sortedFiles = node => [...node.files].sort((a, b) => byName(base(a), base(b)));
+function treeOrder(node) {
+  return [...sortedDirs(node).flatMap(treeOrder), ...sortedFiles(node)];
+}
+const PATHS = treeOrder(buildTree(Object.keys(D.files)));
 let announceTimer = null;
 function announce(text) {
   const el = document.getElementById('announce');
@@ -193,8 +214,11 @@ function updateToolbar() {
 const showThread = t => filter === 'all' || (filter === 'open' ? !statusOf(t) : statusOf(t) === filter);
 
 function renderList() {
-  const nav = document.getElementById('list');
-  const top = nav.scrollTop;
+  renderThreads();
+  renderFiles();
+}
+function renderThreads() {
+  const box = document.getElementById('threads');
   const mine = records().filter(([, t]) => showThread(t)).sort(([, a], [, b]) => (a.created || '').localeCompare(b.created || ''));
   let html = '';
   if (mine.length) {
@@ -210,20 +234,99 @@ function renderList() {
         <span class="fid">${esc(id)}</span><span class="t">${esc(t.title)}</span><span class="st">${mark}${note}${talk}</span><span class="l">${esc(whereText(t))}</span></button>`;
     }
   }
-  html += `<h2 class="sev-finding fixed-h"><span class="dot"></span>Files · ${PATHS.length}</h2>`;
-  for (const p of PATHS) {
-    const f = D.files[p];
-    const del = Object.values(f.removed_text || {}).reduce((n, l) => n + l.length, 0);
-    const n = threadsIn(p).length;
-    const kind = { added: 'A', deleted: 'D' }[f.status] || 'M';
-    html += `<button class="item file${p === curPath ? ' sel' : ''}" data-file="${esc(p)}"${p === curPath ? ' aria-current="true"' : ''}>
-      <span class="fid st-${kind}" title="${esc(f.status || 'modified')}">${kind}</span><span class="t">${esc(base(p))}</span>
-      <span class="st">${n ? `<span class="chat" role="img" aria-label="${phrase(n, 'thread', 'threads')}" title="${phrase(n, 'thread', 'threads')}">💬${n}</span>` : ''}</span>
-      <span class="l">${esc(dirOf(p) || './')} · +${f.added.length} −${del}</span></button>`;
-  }
-  rerender(nav, html, ['data-th', 'data-file']);
-  nav.scrollTop = top;
+  rerender(box, html, ['data-th']);
 }
+
+/* ---------- the list of files: folders that fold, and a search by name ---------- */
+
+const TREE_KEY = 'finding-viewer:tree:' + D.page;
+let fileQuery = '';
+// Folders the reviewer folded, by path. A folder that holds only another folder shows as one row ("src/app"); its key is
+// the path of the outer one.
+const FOLDED = new Set();
+try { JSON.parse(localStorage.getItem(TREE_KEY) || '[]').forEach(k => typeof k === 'string' && FOLDED.add(k)); } catch (e) { /* private mode */ }
+function saveFolded() {
+  try { localStorage.setItem(TREE_KEY, JSON.stringify([...FOLDED])); } catch (e) { /* private mode: until reload */ }
+}
+const searchTerms = () => fileQuery.toLowerCase().split(/\s+/).filter(Boolean);
+const pathMatches = (p, terms) => terms.every(t => p.toLowerCase().includes(t));
+const matchingPaths = () => { const terms = searchTerms(); return terms.length ? PATHS.filter(p => pathMatches(p, terms)) : PATHS; };
+const dirPrefixes = p => p.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'));
+// Open the folders above a file, so the list shows it.
+function reveal(path) {
+  const before = FOLDED.size;
+  dirPrefixes(path).forEach(k => FOLDED.delete(k));
+  if (FOLDED.size !== before) saveFolded();
+}
+const filesIn = node => node.files.length + [...node.dirs.values()].reduce((n, d) => n + filesIn(d), 0);
+const allFilesIn = node => [...node.files, ...[...node.dirs.values()].flatMap(allFilesIn)];
+
+function fileRow(p, depth) {
+  const f = D.files[p];
+  const del = Object.values(f.removed_text || {}).reduce((n, l) => n + l.length, 0);
+  const n = threadsIn(p).length;
+  const kind = { added: 'A', deleted: 'D' }[f.status] || 'M';
+  const pad = 16 + depth * 14;
+  return `<button class="item file${p === curPath ? ' sel' : ''}" data-file="${esc(p)}" style="padding-left:${pad}px" title="${esc(p)}"${p === curPath ? ' aria-current="true"' : ''}>
+    <span class="fid st-${kind}" title="${esc(f.status || 'modified')}">${kind}</span><span class="t">${esc(base(p))}</span>
+    <span class="st">${n ? `<span class="chat" role="img" aria-label="${phrase(n, 'thread', 'threads')}" title="${phrase(n, 'thread', 'threads')}">💬${n}</span>` : ''}</span>
+    <span class="l">+${f.added.length} −${del}</span></button>`;
+}
+function dirRows(node, depth, searching) {
+  let html = '';
+  for (let dir of sortedDirs(node)) {
+    // One row for a chain of folders that each hold only the next one.
+    let label = dir.name;
+    const top = dir;
+    while (!dir.files.length && dir.dirs.size === 1) { dir = [...dir.dirs.values()][0]; label += '/' + dir.name; }
+    const open = searching || !FOLDED.has(top.path);
+    const inside = allFilesIn(dir);
+    const talk = inside.reduce((n, p) => n + threadsIn(p).length, 0);
+    const holdsCur = !open && inside.includes(curPath);
+    html += `<button class="item dir${holdsCur ? ' sel' : ''}" data-dir="${esc(top.path)}" aria-expanded="${open}" style="padding-left:${16 + depth * 14}px" title="${esc(dir.path)}">
+      <span class="fid caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="t">${esc(label)}/</span>
+      <span class="st">${!open && talk ? `<span class="chat" role="img" aria-label="${phrase(talk, 'thread', 'threads')} inside" title="${phrase(talk, 'thread', 'threads')} inside">💬${talk}</span>` : ''}</span>
+      <span class="l">${phrase(inside.length, 'file', 'files')}</span></button>`;
+    if (open) html += dirRows(dir, depth + 1, searching) + sortedFiles(dir).map(p => fileRow(p, depth + 1)).join('');
+  }
+  return html;
+}
+function renderFiles() {
+  const box = document.getElementById('files');
+  const terms = searchTerms(), shown = matchingPaths();
+  const root = buildTree(shown);
+  let html = dirRows(root, 0, !!terms.length) + sortedFiles(root).map(p => fileRow(p, 0)).join('');
+  if (!shown.length) html = `<div class="empty small">No changed file matches “${esc(fileQuery.trim())}”.</div>`;
+  document.getElementById('files-h').textContent = terms.length ? `Files · ${shown.length} of ${PATHS.length}` : `Files · ${PATHS.length}`;
+  const fold = document.getElementById('files-fold');
+  const hasDirs = PATHS.some(p => p.includes('/'));
+  fold.hidden = !hasDirs || !!terms.length;
+  fold.textContent = FOLDED.size ? 'Unfold all' : 'Fold all';
+  rerender(box, html, ['data-file', 'data-dir']);
+}
+function toggleDir(key) {
+  if (FOLDED.has(key)) FOLDED.delete(key); else FOLDED.add(key);
+  saveFolded();
+  renderFiles();
+}
+document.getElementById('files-fold').addEventListener('click', () => {
+  if (FOLDED.size) FOLDED.clear(); else PATHS.forEach(p => dirPrefixes(p).forEach(k => FOLDED.add(k)));
+  saveFolded();
+  renderFiles();
+});
+const search = document.getElementById('filesearch');
+search.addEventListener('input', () => { fileQuery = search.value; renderFiles(); });
+search.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const first = matchingPaths()[0];
+    if (first) { e.preventDefault(); openFile(first); announce(`Opened ${first}.`); }
+  } else if (e.key === 'Escape' && search.value) {
+    e.preventDefault(); e.stopPropagation();
+    search.value = ''; fileQuery = ''; renderFiles();
+  }
+});
+// Bring the file on show into view in the list.
+const showCurrentFile = () => document.querySelector('#files .item.file.sel')?.scrollIntoView({ block: 'nearest' });
 
 /* ---------- the diff ---------- */
 
@@ -289,7 +392,7 @@ function renderDetail() {
   const i = PATHS.indexOf(curPath);
   const top = main.scrollTop;
   main.innerHTML = `<p class="hint pick">Click a line number (shift-click for a range), or drag over the code. Then ask Claude about it or ask for a change.
-      <kbd>[</kbd> <kbd>]</kbd> change file · <kbd>c</kbd> chat · <kbd>Esc</kbd> clear</p>
+      <kbd>[</kbd> <kbd>]</kbd> change file · <kbd>/</kbd> search files · <kbd>c</kbd> chat · <kbd>Esc</kbd> clear</p>
     <section class="card" id="file-card">
       <div class="card-h"><code class="path">${esc(curPath)}</code><span class="badge">${esc(f.status || 'modified')}</span>
         <span class="badge in">+${f.added.length}</span><span class="badge warn">−${del}</span>${f.truncated ? '<span class="badge warn">truncated: the page keeps the first 30000 lines</span>' : ''}
@@ -388,8 +491,10 @@ function openThread(id, focus) {
   if (!t || !t.locations) return;
   curId = id;
   curPath = pathOf(t);
+  reveal(curPath);
   history.replaceState(null, '', '#' + encodeURIComponent(id));
   renderList();
+  showCurrentFile();
   renderDetail();
   renderSelbar();
   renderThread();
@@ -456,15 +561,18 @@ document.getElementById('thread').addEventListener('input', e => {
   persist();
 });
 document.getElementById('list').addEventListener('click', e => {
-  const th = e.target.closest('[data-th]'), file = e.target.closest('[data-file]');
+  const th = e.target.closest('[data-th]'), file = e.target.closest('[data-file]'), dir = e.target.closest('[data-dir]');
   if (th) openThread(th.dataset.th, 'chat');
   else if (file) openFile(file.dataset.file);
+  else if (dir) toggleDir(dir.dataset.dir);
 });
 function openFile(path) {
   if (!D.files[path]) return;
   curPath = path;
+  reveal(path);
   if (curId && !T.findings[curId]?.locations.some(l => l.path === path)) curId = null;
   renderList(); renderDetail(); renderSelbar(); renderThread(); renderChat();
+  showCurrentFile();
   document.getElementById('detail').scrollTop = 0;
 }
 document.getElementById('statusFilter').addEventListener('click', e => {
@@ -782,6 +890,7 @@ document.addEventListener('keydown', e => {
   if (typing || e.target.closest?.('dialog')) return;
   const keys = {
     c: () => { if (chatHidden()) setChatHidden(false); document.getElementById('chatin').focus(); },
+    '/': () => search.focus(),
     h: () => setChatHidden(!chatHidden()),
     '[': () => openFile(PATHS[Math.max(0, PATHS.indexOf(curPath) - 1)]),
     ']': () => openFile(PATHS[Math.min(PATHS.length - 1, PATHS.indexOf(curPath) + 1)]),
