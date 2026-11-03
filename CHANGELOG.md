@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-03
+
+### Changed
+- Diff review: the list of files shows each folder and file on one row instead of two. Folders have a chevron and a
+  folder icon, files a file icon tinted by kind, and the threads, the +/− and the status (A/M/D) sit at the right. A
+  long name is cut with an ellipsis while its extension stays in sight (the full path is in the tooltip), the +/− give
+  way in a narrow list, and deleted files are struck through.
+
 ## [0.2.2] - 2026-11-03
 
 ### Added
