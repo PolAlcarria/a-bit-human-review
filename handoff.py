@@ -120,8 +120,13 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
             lines += note_lines(v, k)
     if skip:
         lines.append('Resolved, no change wanted:' if diff else "Won't fix:" if local else 'Not posting:')
+        declined = rereview.dismissed(data)
         for k, v in skip:
             lines.append(f"- {k} {v.get('title', '')}" + (f" ({places(v)})" if diff else ''))
+            if k in declined:
+                why = declined[k].get('why')
+                lines.append('  Dismissed on the PR: the change will not be made' + (f' ({why})' if why else '')
+                             + '. Do not raise it again.')
             lines += note_lines(v, k)
     if undecided:
         lines.append(('Open threads (questions, no change asked yet): ' if diff else 'Undecided: ') + ', '.join(undecided) + '.')

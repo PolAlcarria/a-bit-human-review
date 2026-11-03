@@ -671,9 +671,9 @@ const RR_KEY = 'finding-viewer:rereviewed:' + D.page;
 let rrWas = null, rrNote = null, rrShown = '', rrTick = null, rrConfirm = false, rrStarting = false, lockShown = false;
 let saveRefused = false;  // the last save met the lock: sent again if the page unlocks unchanged
 
-// "1 fixed, 1 still applies, 2 new" (rereview.said).
+// "1 fixed, 1 dismissed, 1 still applies, 2 new" (rereview.said).
 function rrCounts(c = {}) {
-  const say = { fixed: ['fixed', 'fixed'], still_applies: ['still applies', 'still apply'], changed: ['changed', 'changed'], new: ['new', 'new'] };
+  const say = { fixed: ['fixed', 'fixed'], dismissed: ['dismissed', 'dismissed'], still_applies: ['still applies', 'still apply'], changed: ['changed', 'changed'], new: ['new', 'new'] };
   return Object.keys(say).filter(k => c[k]).map(k => `${c[k]} ${say[k][c[k] === 1 ? 0 : 1]}`).join(', ') || 'no findings';
 }
 
@@ -1084,6 +1084,7 @@ function renderDetail() {
   // What the last re-review found (rereview.py); "still applies" needs no tag.
   const R = f.rereview;
   if (R?.status === 'fixed') tags.push(`<span class="tag fixed">Fixed in ${esc(short(R.at))}</span>`);
+  else if (R?.status === 'dismissed') tags.push(`<span class="tag dismissed" title="A comment on the PR says this will not be changed (seen in ${esc(short(R.at))})">Dismissed on the PR</span>`);
   else if (R?.status === 'changed') tags.push(`<span class="tag changed" title="Still applies, but what it says or where it sits changed in ${esc(short(R.at))}">Changed</span>`);
   else if (R?.status === 'new') tags.push(`<span class="tag new" title="Found in the new commits, at ${esc(short(R.at))}">New</span>`);
   tags.push(`<span id="fresh-tag">${freshTag(f)}</span>`);
@@ -1093,6 +1094,7 @@ function renderDetail() {
     <div class="dhead sev-${f.severity}"><span class="sev">${LABEL[f.severity]}</span><span class="fidbig">${esc(f.id)}</span>
       <h2>${esc(f.title)}</h2>${tags.join(' ')}</div>
     ${R?.status === 'fixed' && R.why ? `<p class="rr-why">Fixed in ${esc(short(R.at))}: ${esc(R.why)}</p>` : ''}
+    ${R?.status === 'dismissed' ? `<p class="rr-why">Dismissed on the PR, so marked Don't post at ${esc(short(R.at))}${R.why ? ': ' + esc(R.why) : ''}</p>` : ''}
     <div class="triage ${s || ''}" id="triage">
       <div id="tri-controls">${triControls(f)}</div>
       <div id="rr-marks">${rrMarks(f)}</div>
