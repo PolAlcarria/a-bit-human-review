@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-03
+
 ### Added
 - Diff review: `/findings diff [base]` opens every change of the branch since its base (committed or not) as one diff to
   read line by line. Select lines to ask Claude about them or to request a change; threads use the same side chat, and
