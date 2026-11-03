@@ -280,7 +280,7 @@ const fileKind = p => (FILE_KIND.find(([re]) => re.test(p)) || [, 'plain'])[1];
 function nameHtml(name) {
   const dot = name.lastIndexOf('.');
   const ext = dot > 0 && name.length - dot <= 8 ? name.slice(dot) : '';
-  return `<span class="name"><span class="stem">${esc(ext ? name.slice(0, dot) : name)}</span>${ext ? `<span class="ext">${esc(ext)}</span>` : ''}</span>`;
+  return `<span class="name"><span class="stem"><span class="txt">${esc(ext ? name.slice(0, dot) : name)}</span></span>${ext ? `<span class="ext">${esc(ext)}</span>` : ''}</span>`;
 }
 const STATUS_WORD = { A: 'added', D: 'deleted', M: 'modified' };
 const indent = depth => `style="--depth:${depth}"`;
@@ -309,7 +309,7 @@ function dirRows(node, depth, searching) {
     const talk = inside.reduce((n, p) => n + threadsIn(p).length, 0);
     const holdsCur = !open && inside.includes(curPath);
     html += `<button class="item dir row${holdsCur ? ' sel' : ''}${open ? ' open' : ''}" data-dir="${esc(top.path)}" aria-expanded="${open}" ${indent(depth)} title="${esc(dir.path)}/ · ${phrase(inside.length, 'file', 'files')}">
-      <span class="twist">${ICON.chevron}</span>${open ? ICON.folderOpen : ICON.folder}<span class="name"><span class="stem">${esc(label)}</span></span>
+      <span class="twist">${ICON.chevron}</span>${open ? ICON.folderOpen : ICON.folder}<span class="name"><span class="stem"><span class="txt">${esc(label)}</span></span></span>
       ${!open ? threadMark(talk, true) : ''}<span class="count">${inside.length}</span></button>`;
     if (open) html += dirRows(dir, depth + 1, searching) + sortedFiles(dir).map(p => fileRow(p, depth + 1)).join('');
   }
@@ -327,6 +327,39 @@ function renderFiles() {
   fold.hidden = !hasDirs || !!terms.length;
   fold.textContent = FOLDED.size ? 'Unfold all' : 'Fold all';
   rerender(box, html, ['data-file', 'data-dir']);
+  markCut();
+}
+
+/* Names cut by the list: shown whole on hover or focus, and, when Slide long names is on, sliding to show their end. */
+const SLIDE_KEY = 'finding-viewer:slide-names';
+function slideWanted() {
+  try { const v = localStorage.getItem(SLIDE_KEY); if (v !== null) return v === '1'; } catch (e) { /* private mode */ }
+  return !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;  // on, unless the system asks for less motion
+}
+const slideBox = document.getElementById('files-slide');
+function applySlide() { document.getElementById('files').classList.toggle('sliding', slideBox.checked); }
+slideBox.checked = slideWanted();
+applySlide();
+slideBox.addEventListener('change', () => {
+  try { localStorage.setItem(SLIDE_KEY, slideBox.checked ? '1' : '0'); } catch (e) { /* private mode: until reload */ }
+  applySlide();
+});
+// Mark each row whose name does not fit, with how far it has to slide and for how long (a steady reading pace).
+function markCut() {
+  for (const stem of document.querySelectorAll('#files .item.row .stem')) {
+    const row = stem.closest('.item.row');
+    if (row.matches(':hover')) continue;  // shown whole now: measured again when it renders next
+    const over = stem.scrollWidth - stem.clientWidth;
+    row.classList.toggle('cut', over > 1);
+    if (over > 1) {
+      stem.style.setProperty('--slide', `-${over + 2}px`);
+      stem.style.setProperty('--slide-time', `${(4 + over / 30).toFixed(1)}s`);
+    }
+  }
+}
+if (window.ResizeObserver) {
+  let raf = 0;
+  new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(markCut); }).observe(document.getElementById('files'));
 }
 function toggleDir(key) {
   if (FOLDED.has(key)) FOLDED.delete(key); else FOLDED.add(key);

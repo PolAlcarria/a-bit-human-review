@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+- Diff review: the list of files indents each folder level less (9px instead of 14px).
+
+### Added
+- Diff review: a file or folder name the list cuts is shown whole on hover or keyboard focus, and **Slide long names**
+  (under Files) makes cut names slide to show their end. It is on unless the system asks for reduced motion, and the
+  choice is remembered.
+
 ## [0.3.0] - 2026-11-03
 
 ### Changed
