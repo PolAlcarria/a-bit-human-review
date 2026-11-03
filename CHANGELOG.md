@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-03
+
 ### Changed
 - Diff review: the list of files indents each folder level less (9px instead of 14px).
 
