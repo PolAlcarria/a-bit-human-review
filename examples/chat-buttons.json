@@ -1,0 +1,13 @@
+{
+  "finding": [
+    {"label": "Is it real?", "prompt": "Is this a real problem? Check it against the code."},
+    {"label": "Draft the comment", "prompt": "Draft the PR comment for this finding. Follow my note if I wrote one."},
+    {"label": "Tests?", "prompt": "Which test would catch this? Name the file and the case."}
+  ],
+  "diff": [
+    {"label": "Explain", "prompt": "Explain what this code does and why it may have been written this way."},
+    {"label": "Bugs?", "prompt": "Check these lines for bugs, edge cases and anything that does not match the code around them."},
+    {"label": "Too clever", "prompt": "Is this more complex than it needs to be? Say what I would delete."},
+    {"label": "Word the change", "prompt": "Word a change request for the coding session about these lines. Follow my note if I wrote one."}
+  ]
+}

@@ -17,6 +17,7 @@ import re
 import time
 from pathlib import Path
 
+import buttons
 import claude_cli
 import config
 import jobs
@@ -51,6 +52,19 @@ blame, gh pr view/diff). You cannot edit files or post anything.
 - Run one command per Bash call. Pipes, `;`, `&&` and `$(...)` are blocked, so never combine commands.
 - When the reviewer asks you to draft or reword the PR comment, put only the comment text in a fenced block tagged \
 `comment` (```comment ... ```), so the page can offer it as their note."""
+DIFF_SYSTEM_PROMPT = """You are in a side chat on a local diff-review page. The reviewer is reading the changes of \
+their own branch line by line, before any PR exists, and asks about the lines they selected. Most of the code was \
+written by an AI.
+- Lead with the answer. Keep replies short (about 150 words) unless the reviewer asks for more.
+- Check claims against the code before answering. You can read the repository (Read, Grep, Glob, git show/log/diff/\
+blame, gh pr view/diff). You cannot edit files or post anything: the reviewer asks the coding session to change code.
+- {where}
+- The branch's changes: `git diff {merge_base} -- <path>` (it includes uncommitted changes when the page shows the \
+working tree).{pr_hint}
+- Run one command per Bash call. Pipes, `;`, `&&` and `$(...)` are blocked, so never combine commands.
+- When the reviewer asks you to word a change request for the coding session, put only the request text in a fenced \
+block tagged `change` (```change ... ```), so the page can offer it as their note. Name the file and lines, and say \
+what the code should do instead."""
 
 
 log = paths.log('chat: ')
@@ -80,7 +94,8 @@ def load_settings() -> dict:
 
 
 def settings_payload() -> dict:
-    return {'settings': load_settings(), 'models': MODEL_OPTIONS}
+    """The settings, the models to choose from, and the quick buttons each kind of page shows under the chat."""
+    return {'settings': load_settings(), 'models': MODEL_OPTIONS, 'buttons': buttons.load()[0]}
 
 
 def save_settings(body: dict) -> tuple[int, dict]:
@@ -151,7 +166,7 @@ def start(page: str, fid: str, message: str, note: str | None = None) -> tuple[i
     if not message or len(message) > MAX_MESSAGE_CHARS:
         return 400, {'error': f'message must be 1–{MAX_MESSAGE_CHARS} characters'}
     data = store.page_data(page)
-    finding = next((f for f in (data or {}).get('findings', []) if f['id'] == fid), None)
+    finding = store.find_finding(page, data or {}, fid)
     if not finding:
         return 404, {'error': 'unknown finding'}
     claude = claude_cli.binary()
@@ -198,6 +213,8 @@ def first_prompt(page: str, data: dict, finding: dict, message: str, note: str |
         dec = (json.loads(store.decisions_path(page).read_text()).get('findings') or {}).get(finding['id'], {})
     except (OSError, ValueError):
         pass
+    if data.get('kind') == 'diff':
+        return diff_prompt(data, finding, dec, message, note)
     # A review with no PR posts nothing (as handoff.summarize says): a skip is won't fix, and a post stored before is
     # undecided; a note there is never a comment to post word for word.
     local = not data.get('pr')
@@ -214,6 +231,28 @@ def first_prompt(page: str, data: dict, finding: dict, message: str, note: str |
         '', finding.get('body') or '(no further text)', '',
         f'Reviewer\'s decision so far: {status}.' + (f" {mine}: {dec['note'].strip()}" if (dec.get('note') or '').strip() else ''),
         '', 'Code at the finding (">" marks flagged lines, "+" lines added in the branch):',
+    ]
+    budget = EXCERPT_MAX_LINES
+    for loc in finding.get('locations', []):
+        excerpt, used = code_excerpt(data, loc, budget)
+        parts.append(excerpt)
+        budget -= used
+    if note:
+        parts += ['', note]
+    parts += ['', "Reviewer's message:", message]
+    return '\n'.join(parts)
+
+
+def diff_prompt(data: dict, finding: dict, dec: dict, message: str, note: str | None = None) -> str:
+    """The first message of a thread on a diff review: the lines the reviewer selected, with their code around them."""
+    status = {'fix': 'Change requested: the reviewer wants this code changed',
+              'skip': 'Resolved: the reviewer wants no change'}.get(dec.get('status'), 'open, no change requested yet')
+    parts = [
+        'The reviewer opened a side chat about lines they selected while reading the diff of their branch.',
+        f"Diff review: {data.get('title')} (changes since {data.get('base')})",
+        f"Thread {finding['id']}: {finding['title']}",
+        '', f'Thread status: {status}.' + (f" Reviewer's note: {dec['note'].strip()}" if (dec.get('note') or '').strip() else ''),
+        '', 'Selected code (">" marks the selected lines, "+" lines added in the branch):',
     ]
     budget = EXCERPT_MAX_LINES
     for loc in finding.get('locations', []):
@@ -349,9 +388,10 @@ def _run(claude: str, page: str, fid: str, job: str, prompt: str, resume: str | 
         mode = 'finding'
         notice = "_The review session's transcript wasn't found, so this thread has the finding only._\n\n"
     cwd = saved_cwd if resume and saved_cwd else fork[1] if fork else checkout
-    system = SYSTEM_PROMPT.format(where=where_text(cwd, checkout, is_snapshot, ref),
-                                  merge_base=data.get('merge_base') or store.default_base(checkout) or 'origin/HEAD',
-                                  pr_hint=f" For the whole PR: `gh pr diff {data['pr']}{repo_flag(data)}`." if data.get('pr') else '')
+    system = (DIFF_SYSTEM_PROMPT if data.get('kind') == 'diff' else SYSTEM_PROMPT).format(
+        where=where_text(cwd, checkout, is_snapshot, ref),
+        merge_base=data.get('merge_base') or store.default_base(checkout) or 'origin/HEAD',
+        pr_hint=f" For the whole PR: `gh pr diff {data['pr']}{repo_flag(data)}`." if data.get('pr') else '')
     cmd = [claude, '-p', *claude_cli.common_args(), '--output-format', 'stream-json', '--verbose',
            '--allowedTools', *READ_ONLY_TOOLS, '--append-system-prompt', system]
     if is_snapshot and Path(cwd) != Path(checkout):

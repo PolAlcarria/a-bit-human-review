@@ -24,6 +24,10 @@ from store import git
 CONTEXT_LINES = 12
 MAX_FILE_LINES = 30000
 KEEP_PAGES = 40
+# A diff review embeds every changed file whole, so it keeps to a size the page can hold.
+MAX_DIFF_FILES = 300
+MAX_DIFF_LINES = 120000
+MAX_UNTRACKED_BYTES = 1_000_000
 
 GITHUB_REMOTE_RE = re.compile(r'^(?:git@github\.com:|https://github\.com/|ssh://git@github\.com/)([^/]+)/(.+?)(?:\.git)?/?$')
 
@@ -154,43 +158,65 @@ def pr_patch(root: Path, pr: int, slug: str | None = None) -> dict | None:
     return parse_patch(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
 
 
-def parse_patch(patch: str) -> dict[str, tuple[list[int], dict[int, int], list[list[int]]]]:
-    """Map each file in a unified diff to (added lines, {line after which N lines were removed}, hunk ranges).
+def parse_patch_detail(patch: str) -> dict[str, dict]:
+    """Map each file in a unified diff to what changed in it, all line numbers on the new side:
 
-    All line numbers are new-side. Hunk ranges include context lines: that is where GitHub accepts inline comments.
+    - ``added``: the added lines, sorted;
+    - ``removed``: {line after which lines were removed: the text of those lines}; ``0`` is before the first line;
+    - ``hunks``: the hunk ranges, context lines included (GitHub accepts inline comments only there);
+    - ``status``: ``added`` (a new file), ``deleted`` or ``modified``.
+
+    A deleted file has no new side: all its lines are in ``removed[0]``.
     """
-    files: dict[str, tuple[set[int], dict[int, int], list[list[int]]]] = {}
-    added: set[int] | None = None
-    removed: dict[int, int] = {}
-    hunks: list[list[int]] = []
+    files: dict[str, dict] = {}
+    cur: dict | None = None
+    old_target: str | None = None
     in_hunk, new_line = False, 0
     for line in patch.splitlines():
         if line.startswith('diff --git '):
-            in_hunk, added = False, None
+            in_hunk, cur, old_target = False, None, None
+            continue
+        if not in_hunk and line.startswith('--- '):
+            old_target = line[4:].strip()
             continue
         if not in_hunk and line.startswith('+++ '):
             target = line[4:].strip()
-            if target != '/dev/null':
-                added, removed, hunks = files.setdefault(target[2:] if target.startswith('b/') else target, (set(), {}, []))
+            if target == '/dev/null':
+                path = (old_target[2:] if old_target.startswith('a/') else old_target) if old_target else None
+                status = 'deleted'
+            else:
+                path = target[2:] if target.startswith('b/') else target
+                status = 'added' if old_target == '/dev/null' else 'modified'
+            cur = files.setdefault(path, {'added': set(), 'removed': {}, 'hunks': [], 'status': status}) if path else None
             continue
         m = re.match(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@', line)
         if m:
             in_hunk, new_line = True, int(m.group(1))
             count = 1 if m.group(2) is None else int(m.group(2))
-            if added is not None and count:
-                hunks.append([new_line, new_line + count - 1])
+            if cur is not None and count:
+                cur['hunks'].append([new_line, new_line + count - 1])
             continue
-        if not in_hunk or added is None:
+        if not in_hunk or cur is None:
             continue
         tag = line[:1]
         if tag == '+':
-            added.add(new_line)
+            cur['added'].add(new_line)
             new_line += 1
         elif tag == '-':
-            removed[new_line - 1] = removed.get(new_line - 1, 0) + 1
+            cur['removed'].setdefault(max(0, new_line - 1), []).append(line[1:])
         elif tag == ' ':
             new_line += 1
-    return {path: (sorted(a), r, h) for path, (a, r, h) in files.items()}
+    return {path: {**d, 'added': sorted(d['added'])} for path, d in files.items()}
+
+
+def parse_patch(patch: str) -> dict[str, tuple[list[int], dict[int, int], list[list[int]]]]:
+    """Map each file in a unified diff to (added lines, {line after which N lines were removed}, hunk ranges).
+
+    All line numbers are new-side. Hunk ranges include context lines: that is where GitHub accepts inline comments.
+    A deleted file is left out (``parse_patch_detail`` keeps it).
+    """
+    return {path: (d['added'], {k: len(v) for k, v in d['removed'].items()}, d['hunks'])
+            for path, d in parse_patch_detail(patch).items() if d['status'] != 'deleted'}
 
 
 def resolve_path(raw: str, root: Path, files: set[str], by_name: dict[str, list[str]], changed: set[str]):
@@ -247,7 +273,10 @@ def write_page(out: Path, data: dict) -> None:
 
 def build_page(spec: dict) -> tuple[Path, dict] | None:
     """The page's path and review data: the repo, the code to show, the findings and their files. None when Claude
-    found no findings in the text and the parser found none either."""
+    found no findings in the text and the parser found none either. A spec of kind ``diff`` builds a diff review
+    instead (``build_diff_page``, which raises ``DiffError`` when it cannot)."""
+    if spec.get('kind') == 'diff':
+        return build_diff_page(spec)
     notes: list[str] = []
     slug = spec.get('repo')
     root = locate_repo(spec['cwd'], slug, notes)
@@ -386,9 +415,139 @@ def load_file(root: Path, path: str, ref: str | None, merge_base: str, untracked
     elif merge_base and changed:
         diff_args = ['diff', '--no-color', '--no-ext-diff', merge_base] + ([ref] if ref else []) + ['--', path]
         added, removed, hunks = parse_patch(git(root, *diff_args) or '').get(path, ([], {}, []))
-    ext = path.rsplit('.', 1)[-1].lower() if '.' in path.rsplit('/', 1)[-1] else path.rsplit('/', 1)[-1].lower()
-    return {'lines': lines, 'lang': LANGS.get(ext), 'added': added, 'removed': removed, 'hunks': hunks,
+    return {'lines': lines, 'lang': lang_of(path), 'added': added, 'removed': removed, 'hunks': hunks,
             'changed': changed, 'truncated': truncated}
+
+
+def lang_of(path: str) -> str | None:
+    """highlight.js's name for the language of a file, from its extension (or its name, for a Dockerfile)."""
+    name = path.rsplit('/', 1)[-1]
+    return LANGS.get(name.rsplit('.', 1)[-1].lower() if '.' in name else name.lower())
+
+
+class DiffError(Exception):
+    """A diff review that cannot be built. The message says why, for the person who asked for it."""
+
+
+def read_text(root: Path, path: str, ref: str | None, max_bytes: int | None = None) -> str | None:
+    """A file's text at ``ref``, or in the working tree when ``ref`` is None. None when it is not text (a NUL in its
+    first 8000 bytes), a symlink (it could point outside the repository), too large for ``max_bytes`` or unreadable."""
+    if ref:
+        text = git(root, 'show', f'{ref}:{path}')
+    else:
+        target = root / path
+        try:
+            if target.is_symlink() or (max_bytes is not None and target.stat().st_size > max_bytes):
+                return None
+            text = target.read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            return None
+    return None if text is None or '\0' in text[:8000] else text
+
+
+def build_diff_page(spec: dict) -> tuple[Path, dict]:
+    """A diff review: every change the branch holds since it left its base, committed or not, to read line by line.
+
+    The base is ``spec['base']``, else the default base (``store.default_base``); the diff runs from the merge-base,
+    as the changed-line markers of a review do. With uncommitted or untracked changes the page shows the working tree
+    (like a review of it); on a clean branch it is pinned to HEAD, so the chat reads exactly what the page shows. It
+    has no findings: the reviewer starts threads on the lines they select (see docs/behaviour.md, Diff review).
+    Raises ``DiffError`` when there is nothing to show."""
+    root = repo_root(spec['cwd'])
+    if root is None:
+        raise DiffError(f"{spec['cwd']} is not inside a git repository.")
+    base = (spec.get('base') or '').strip() or store.default_base(root)
+    if not base:
+        raise DiffError('No base branch found. Name one: /findings diff origin/main')
+    # A name that starts with a dash would be read by git as an option.
+    if base.startswith('-') or git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}') is None:
+        raise DiffError(f'{base} is not a branch or commit of {root.name}.')
+    head = (git(root, 'rev-parse', 'HEAD') or '').strip()
+    merge_base = (git(root, 'merge-base', base, 'HEAD') or '').strip()
+    if not head or not merge_base:
+        raise DiffError(f'{base} and HEAD share no history, so there is no branch to compare.')
+    branch = (git(root, 'rev-parse', '--abbrev-ref', 'HEAD') or '').strip()
+    branch = head[:8] if branch in ('', 'HEAD') else branch
+    untracked = sorted(filter(None, (git(root, 'ls-files', '-z', '-o', '--exclude-standard') or '').split('\0')))
+    uncommitted = bool(untracked) or bool((git(root, 'status', '--porcelain', '--untracked-files=no') or '').strip())
+    ref = None if uncommitted else head
+    # No rename detection: a moved file reads as a deleted one and an added one, each of which the page can show.
+    diff = ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', '--no-renames']
+    span = [merge_base, *([ref] if ref else [])]
+    patch = git(root, *diff, '--no-color', *span, timeout=60)
+    names = git(root, *diff, '--name-only', '-z', *span)
+    if patch is None or names is None:
+        raise DiffError(f'git could not diff {base} against {branch}.')
+    detail = parse_patch_detail(patch)
+    changed = set(filter(None, names.split('\0')))
+    if not changed and not untracked:
+        raise DiffError(f'No changes against {base} (merge-base {merge_base[:8]}): {branch} has nothing new, '
+                        'committed or not.')
+
+    files: dict[str, dict] = {}
+    left = MAX_DIFF_LINES
+    skipped: list[str] = []
+    no_text = sorted(changed - set(detail))  # binary files and mode changes have no hunks
+    for path, d in [(p, detail[p]) for p in sorted(detail)] + [(p, None) for p in untracked if p not in detail]:
+        if len(files) >= MAX_DIFF_FILES:
+            skipped.append(path)
+            continue
+        status = 'added' if d is None else d['status']
+        lines: list[str] = []
+        if status != 'deleted':
+            text = read_text(root, path, ref, MAX_UNTRACKED_BYTES if d is None else None)
+            if text is None:
+                no_text.append(path)
+                continue
+            lines = text.split('\n')
+            if lines and lines[-1] == '':
+                lines.pop()
+            if len(lines) > left:
+                skipped.append(path)
+                continue
+        truncated = len(lines) > MAX_FILE_LINES
+        lines = lines[:MAX_FILE_LINES]
+        left -= len(lines)
+        added = list(range(1, len(lines) + 1)) if d is None else [n for n in d['added'] if n <= len(lines)]
+        removed = {} if d is None else d['removed']
+        files[path] = {
+            'lines': lines, 'lang': lang_of(path), 'added': added, 'removed': {k: len(v) for k, v in removed.items()},
+            'hunks': [[1, len(lines)]] if d is None and lines else [] if d is None else d['hunks'],
+            'changed': True, 'truncated': truncated, 'status': status,
+            # The text of the removed lines, by the new line they follow: the page shows them in the diff.
+            'removed_text': {str(k): v for k, v in removed.items()},
+        }
+    notes: list[str] = []
+    if skipped:
+        notes.append(f'{len(skipped)} changed files are not shown: the page keeps at most {MAX_DIFF_FILES} files and '
+                     f'{MAX_DIFF_LINES} lines. Not shown: ' + ', '.join(skipped[:8]) + (', …' if len(skipped) > 8 else '') + '.')
+    if no_text:
+        notes.append(f'{len(no_text)} changed files have no text diff here (binary, a mode change, a link or too '
+                     'large): ' + ', '.join(sorted(no_text)[:8]) + (', …' if len(no_text) > 8 else '') + '.')
+    if not files:
+        raise DiffError('The branch changed no file this page can show as text.')
+
+    total_add = sum(len(f['added']) for f in files.values())
+    total_del = sum(len(t) for f in files.values() for t in f['removed_text'].values())
+    title = spec['title'] = spec.get('title') or f'Diff review · {branch}'
+    out = Path(spec.get('out') or new_out_path(spec))
+    data = {
+        'page': out.parent.name, 'kind': 'diff', 'session_id': spec.get('session_id'),
+        'review_session': spec.get('session_id'), 'pr': None, 'pr_author': None, 'ref': ref, 'title': title,
+        'subtitle': spec.get('subtitle') or f'{root.name} · {branch} against {base} · {phrase(len(files), "file")}, '
+                    f'+{total_add} −{total_del}',
+        'repo_root': str(root), 'repo_name': root.name,
+        'ref_label': f'commit {head[:8]} ({branch})' if ref else f'working tree ({branch})',
+        'merge_base': merge_base[:8], 'base': base, 'github': github_base(root), 'blob_ref': head, 'notes': notes,
+        'generated': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
+        # No findings: the reviewer's threads live in the triage (decisions.json), one per selection of lines.
+        'findings': [], 'files': files,
+    }
+    return out, data
+
+
+def phrase(n: int, one: str) -> str:
+    return f'{n} {one}' + ('' if n == 1 else 's')
 
 
 def new_out_path(spec: dict) -> Path:

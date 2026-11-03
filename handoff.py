@@ -30,7 +30,8 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
     data = store.page_data(page) or {}
     # A review with no PR is the reviewer's own code before a PR exists: nothing is posted, so a finding is to fix, won't
     # fix (stored as skip) or undecided; one stored as post, from before that, counts as undecided.
-    local = not (data.get('pr') or dec.get('pr'))
+    diff = data.get('kind') == 'diff'
+    local = diff or not (data.get('pr') or dec.get('pr'))
     # Findings the new commits fixed (rereview.py) stay on the page, but there is nothing to post or decide for them.
     fixed = rereview.fixed(data)
     items = [(k, v) for k, v in (dec.get('findings') or {}).items() if k not in fixed]
@@ -48,10 +49,12 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
     undecided = [k for k, v in items if undecided_status(v)]
     pr = f" (PR #{dec['pr']})" if dec.get('pr') else ''
     title = dec.get('title') or chat_state.get('title') or page
-    tally = (f"{len(fix)} to fix, {len(skip)} won't fix, {len(undecided)} undecided" if local else
+    tally = (f"{len(fix)} changes requested, {len(skip)} resolved, {len(undecided)} open" if diff else
+             f"{len(fix)} to fix, {len(skip)} won't fix, {len(undecided)} undecided" if local else
              f"{len(post)} to post, {f'{len(fix)} to fix locally, ' if fix else ''}{len(skip)} not to post, "
              f"{len(undecided)} undecided")
-    lines = [f"Finding-viewer triage for \"{title}\"{pr}: {tally}{f', {len(fixed)} fixed' if fixed else ''}. "
+    heading = 'Diff review' if diff else 'Finding-viewer triage'
+    lines = [f"{heading} for \"{title}\"{pr}: {tally}{f', {len(fixed)} fixed' if fixed else ''}. "
              f"Saved {dec.get('saved_at') or chat_state.get('updated', '?')}."]
     if again := rereview.heads_up(data):
         lines.append(again)
@@ -72,6 +75,12 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
             gist = re.sub(r'\s+', ' ', last or '(no reply yet)')
             out.append(f'  Page chat with Claude ({len(msgs)} messages). Last reply: {gist[:400]}{"…" if len(gist) > 400 else ""}')
         return out
+
+    def places(v: dict) -> str:
+        """Where a diff-review thread points: the lines the reviewer selected."""
+        locs = [f"{loc['path']}:{loc['start']}" + (f"-{loc['end']}" if loc.get('end') not in (None, loc['start']) else '')
+                for loc in v.get('locations') or [] if isinstance(loc, dict) and loc.get('path') and loc.get('start')]
+        return ', '.join(locs) or 'no code location'
 
     def anchor(v: dict) -> str:
         a = v.get('anchor') or {}
@@ -96,7 +105,12 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
                 lines.append(f"  It changed in the re-review at {v['recheck'][:10]}, after the reviewer chose Post: the "
                              'reviewer has not looked at it again yet.')
             lines += note_lines(v, k)
-    if fix:
+    if fix and diff:
+        lines.append('Changes the reviewer asks for (lines of their own branch, read before any PR; change the code as asked):')
+        for k, v in fix:
+            lines.append(f"- {k} {v.get('title', '')}. At {places(v)}.")
+            lines += note_lines(v, k)
+    elif fix:
         lines.append("To fix locally (the reviewer's own code: change the code before anyone else reviews it; never post these):")
         for k, v in fix:
             sev = LABEL.get(v.get('severity'), '')
@@ -105,12 +119,12 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
             lines.append(f"- {k} [{sev}] {v.get('title', '')}. {where}")
             lines += note_lines(v, k)
     if skip:
-        lines.append("Won't fix:" if local else 'Not posting:')
+        lines.append('Resolved, no change wanted:' if diff else "Won't fix:" if local else 'Not posting:')
         for k, v in skip:
-            lines.append(f"- {k} {v.get('title', '')}")
+            lines.append(f"- {k} {v.get('title', '')}" + (f" ({places(v)})" if diff else ''))
             lines += note_lines(v, k)
     if undecided:
-        lines.append('Undecided: ' + ', '.join(undecided) + '.')
+        lines.append(('Open threads (questions, no change asked yet): ' if diff else 'Undecided: ') + ', '.join(undecided) + '.')
         for k, v in items:
             if undecided_status(v):
                 lines += [f'  {k}:'] + note_lines(v, k) if (v.get('note') or '').strip() or k in threads else []
@@ -120,7 +134,11 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
     lines.append(f'Full finding text and notes: {store.decisions_path(page)}')
     if threads:
         lines.append(f'Full page chats: {store.chat_path(page)}')
-    if for_claude:
+    if for_claude and diff:
+        if fix:
+            lines.append('Make the changes under "Changes the reviewer asks for" in the code, following the reviewer\'s notes, '
+                         'and show the reviewer what you changed. Leave the resolved threads as they are.')
+    elif for_claude:
         if fix:
             change = ("Change only those: leave the findings marked won't fix as they are." if local else
                       'Change only those: the findings to post stay as they are. Do not post them or mention them on the PR.')
@@ -238,7 +256,8 @@ def send_fixes(page: str, data: dict) -> tuple[int, dict]:
     dec, _chat, owner, version = page_state(page)
     fixed = rereview.fixed(data)
     if not any(v.get('status') == 'fix' and k not in fixed for k, v in (dec.get('findings') or {}).items()):
-        return 400, {'error': 'Mark at least one finding Fix first.'}
+        return 400, {'error': 'Request at least one change first.' if data.get('kind') == 'diff' else
+                     'Mark at least one finding Fix first.'}
     sid = owner or data.get('session_id')
     live = sessions.live_session(sid) if sid and sessions.SESSION_RE.match(sid) else None
     if not live or not live.get('name'):

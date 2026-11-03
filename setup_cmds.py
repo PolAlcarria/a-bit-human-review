@@ -23,6 +23,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+import buttons
 import claude_cli
 import config
 import paths
@@ -469,6 +470,12 @@ def doctor() -> int:
     if not problems:
         report('PASS', 'config', str(paths.CONFIG) if paths.CONFIG.exists()
                else f'no {paths.CONFIG}: every key has its default')
+    _buttons, button_problems = buttons.load()
+    for line in button_problems:
+        report('WARN', 'buttons', line)
+    if not button_problems:
+        report('PASS', 'buttons', str(paths.CHAT_BUTTONS) if paths.CHAT_BUTTONS.exists()
+               else f'no {paths.CHAT_BUTTONS}: the chat shows the built-in buttons')
     for key in config.DEFAULTS:
         print(f'{"":16}{key} = {json.dumps(values[key])}  ({sources[key]})')
     return 1 if failed else 0

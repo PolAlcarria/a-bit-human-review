@@ -49,7 +49,8 @@ open restarts once; set it back to `None` when the pin is no longer needed (the 
 The review page is `web/viewer.html`, `web/viewer.css` and `web/viewer.js`, and the list page is `web/index.html`;
 `web/shared.css` is shared by both. `reviews.viewer_template()` and `reviews.index_page()` inline them at fill time, so
 edit the files under `web/` and keep the placeholders (`/*__SHARED_CSS__*/`, `/*__CSS__*/`, `/*__JS__*/`,
-`/*__DATA__*/`, `__NONCE__`, `__TITLE__`).
+`/*__DATA__*/`, `__NONCE__`, `__TITLE__`). The diff review is `web/diff.html`, `web/diff.css` and `web/diff.js`
+(`reviews.diff_template()`); it also has `/*__VIEWER_CSS__*/`, which inlines `viewer.css` for the layout and the chat.
 
 ## A test server by hand
 
