@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- After a plugin update, or any other change to the code, the review server starts on the first try. It used to fail
+  with "The review server did not start" when the old server was still stopping: `ensure_server()` waited a fixed
+  0.5 s, and `serve` gave up on the first `Address already in use`. Now `ensure_server()` waits for the old server to
+  stop answering, and `serve` retries a busy port for up to 3 s.
+
 ## [0.4.0] - 2026-11-04
 
 ### Fixed

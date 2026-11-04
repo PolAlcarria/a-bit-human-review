@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import errno
 import hashlib
 import json
 import os
@@ -39,6 +40,7 @@ from store import decisions_path
 
 PORT = config.get('port')
 ORIGIN = f'http://127.0.0.1:{PORT}'
+BIND_WAIT_SECONDS = 3  # how long serve() retries a port that a stopping server still holds
 ALLOWED_HOSTS = {f'127.0.0.1:{PORT}', f'localhost:{PORT}'}
 ALLOWED_ORIGINS = {ORIGIN, f'http://localhost:{PORT}'}
 # Scripts run only with the response's fresh nonce: the inline one and the three cdnjs libraries, which also carry SRI.
@@ -341,11 +343,20 @@ def serve() -> int:
     paths.migrate_if_needed()
     paths.migrate_layout()
     paths.OUT.mkdir(parents=True, exist_ok=True)
-    try:
-        server = ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
-    except OSError as exc:
-        log(f'serve: cannot bind {ORIGIN}: {exc!r}')
-        return 1
+    started = time.monotonic()
+    while True:
+        try:
+            server = ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
+            break
+        except OSError as exc:
+            # A server being replaced holds the port until its process exits, a moment after it stops answering.
+            if exc.errno != errno.EADDRINUSE or time.monotonic() - started >= BIND_WAIT_SECONDS:
+                log(f'serve: cannot bind {ORIGIN}: {exc!r}')
+                return 1
+            time.sleep(0.1)
+    waited = time.monotonic() - started
+    if waited >= 0.1:
+        log(f'serve: {ORIGIN} was busy, bound after {waited:.1f}s')
 
     def stop_when_idle() -> None:
         while True:
@@ -375,11 +386,16 @@ def ensure_server() -> bool:
         return True
     if info and info.get('app') == 'finding-viewer':
         _call('POST', '/api/shutdown')
-        time.sleep(0.5)
+        # serve_forever sees the shutdown only at its next 0.5 s poll: wait until the old server stops answering.
+        quiet_by = time.monotonic() + BIND_WAIT_SECONDS
+        while time.monotonic() < quiet_by and _call('GET', '/api/ping', timeout=0.3):
+            time.sleep(0.1)
     with paths.LOG.open('a') as logfh:
         subprocess.Popen([sys.executable, str(paths.CODE / 'triage.py'), 'serve'], stdin=subprocess.DEVNULL,
                          stdout=logfh, stderr=logfh, start_new_session=True, close_fds=True)
-    for _ in range(30):
+    # Long enough for serve() to wait out a busy port and still start.
+    answer_by = time.monotonic() + BIND_WAIT_SECONDS + 3
+    while time.monotonic() < answer_by:
         time.sleep(0.1)
         info = _call('GET', '/api/ping', timeout=0.3)
         if info and info.get('version') == SERVER_VERSION:

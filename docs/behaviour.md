@@ -133,7 +133,10 @@ A `ThreadingHTTPServer` on `127.0.0.1:47321` (the `port` setting changes it).
 
 - **Lifecycle**: `ensure_server()` pings `/api/ping` and compares `SERVER_VERSION`, a hash of the code (see
   [CONTRIBUTING.md](../CONTRIBUTING.md#server_version)). A missing server, or one running other code, is replaced by a
-  detached `triage.py serve`. The server exits after 8 hours without requests.
+  detached `triage.py serve`. An old server is asked to stop (`POST /api/shutdown`), and `ensure_server()` waits up to
+  3 s for it to stop answering before it starts the new one. The old process can still hold the port for a moment after
+  that, so `serve` retries a busy port every 0.1 s for up to 3 s (`BIND_WAIT_SECONDS`) and logs how long it waited.
+  `ensure_server()` waits up to 6 s for the new server to answer. The server exits after 8 hours without requests.
 - **Security**: requests with a foreign `Host` header are refused (blocks DNS rebinding). Writes also need the
   `X-Finding-Viewer: 1` header and a local or absent `Origin`; a custom header forces a CORS preflight, which the server
   never approves. Page names must match `[\w.-]{1,200}`, not start with a dot, and name a folder inside `out/`. The

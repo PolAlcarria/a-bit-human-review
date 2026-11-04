@@ -5,6 +5,7 @@ import http.client
 import json
 import os
 import shutil
+import socket
 import tempfile
 import threading
 import time
@@ -330,6 +331,82 @@ class ServerVersionTest(unittest.TestCase):
                 with (self.ping_stub(body) if body is not None else contextlib.nullcontext()):
                     triage.replace_old_server()
                 self.assertEqual(ensure.call_count, expected_calls)
+
+
+def stop_spawned_server() -> None:
+    """Stops the ``triage.py serve`` that ensure_server spawned, and waits until its port is free again."""
+    triage._call('POST', '/api/shutdown')
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        probe = socket.socket()
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as the server binds: TIME_WAIT does not count
+        try:
+            probe.bind(('127.0.0.1', triage.PORT))
+            return
+        except OSError:
+            time.sleep(0.1)
+        finally:
+            probe.close()
+
+
+class ReplaceServerRaceTest(unittest.TestCase):
+    """ensure_server replaces a server of other code even while the old one still holds the port."""
+
+    def assert_new_server_answers(self):
+        info = triage._call('GET', '/api/ping', timeout=1)
+        self.assertEqual((info or {}).get('version'), triage.SERVER_VERSION)
+
+    def test_serve_waits_for_a_port_that_is_still_held(self):
+        # The old process stopped answering but has not exited yet, so its socket still holds the port.
+        held = socket.socket()
+        held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # a listening socket still blocks the new bind
+        held.bind(('127.0.0.1', triage.PORT))
+        held.listen()
+        release = threading.Timer(1.0, held.close)
+        release.start()
+        try:
+            self.assertTrue(triage.ensure_server())
+            self.assert_new_server_answers()
+        finally:
+            release.cancel()
+            held.close()
+            stop_spawned_server()
+
+    def test_an_old_server_that_takes_a_while_to_stop_is_replaced(self):
+        # serve_forever notices a shutdown only at its next 0.5 s poll, so the old server answers on for a moment.
+        old = {'server': None}
+
+        class OldServer(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 — the name http.server calls
+                data = json.dumps({'app': 'finding-viewer', 'version': 'old'}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self):  # noqa: N802
+                self.send_response(200)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+
+                def stop_late():
+                    time.sleep(1.0)
+                    old['server'].shutdown()
+                    old['server'].server_close()
+
+                threading.Thread(target=stop_late, daemon=True).start()
+
+            def log_message(self, *args):  # keep the test output quiet
+                pass
+
+        old['server'] = ThreadingHTTPServer(('127.0.0.1', triage.PORT), OldServer)
+        threading.Thread(target=old['server'].serve_forever, daemon=True).start()
+        try:
+            self.assertTrue(triage.ensure_server())
+            self.assert_new_server_answers()
+        finally:
+            stop_spawned_server()
 
 
 if __name__ == '__main__':
