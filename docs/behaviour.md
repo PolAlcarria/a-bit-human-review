@@ -370,8 +370,10 @@ One thread per finding, stored in `out/<page>/chat.json`; each thread keeps its 
   spend.
 - **After a re-review**: each thread on a finding gets one line from the page (`role: system`): "Re-reviewed at
   f48a8e88: still applies. This chat read the code at a6ee6e66…". The thread's next message tells Claude first that the
-  code moved, what the re-review found, and where the new head is checked out (the thread's own session and folder stay;
-  the new head's worktree is added with `--add-dir`).
+  code moved, what the re-review found, and where the new head is checked out. The thread's session stays, and so does
+  its folder while it exists (the new head's worktree is added with `--add-dir`). A thread whose worktree was pruned
+  (the "Reviewed code" bullet keeps 3) resumes in the page's current checkout instead, which becomes the thread's folder
+  from then on; `viewer.log` notes it once. When Claude cannot start, the reply names the missing path or program.
 
 ## Freshness
 

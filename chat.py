@@ -387,7 +387,11 @@ def _run(claude: str, page: str, fid: str, job: str, prompt: str, resume: str | 
     if mode == 'fork' and not resume and not fork:
         mode = 'finding'
         notice = "_The review session's transcript wasn't found, so this thread has the finding only._\n\n"
-    cwd = saved_cwd if resume and saved_cwd else fork[1] if fork else checkout
+    # A thread's saved folder can be a worktree pruned since (store.KEEP_WORKTREES): resume in the page's checkout.
+    kept = resume and saved_cwd and Path(saved_cwd).is_dir()
+    cwd = saved_cwd if kept else fork[1] if fork else checkout
+    if resume and saved_cwd and not kept:
+        log(f'{page} {fid}: saved cwd {saved_cwd} is gone, running in {cwd}')
     system = (DIFF_SYSTEM_PROMPT if data.get('kind') == 'diff' else SYSTEM_PROMPT).format(
         where=where_text(cwd, checkout, is_snapshot, ref),
         merge_base=data.get('merge_base') or store.default_base(checkout) or 'origin/HEAD',
@@ -432,7 +436,7 @@ def _run(claude: str, page: str, fid: str, job: str, prompt: str, resume: str | 
         if answer is None and not error:
             error = stream.failure
     except Exception as exc:  # noqa: BLE001 — any failure must end as a visible message, never a stuck "pending"
-        error = repr(exc)
+        error = f'{type(exc).__name__}: {exc}'  # str() keeps an OSError's filename, which repr() drops
         log(f'{page} {fid}: {error}')
     with jobs.locked(store.chat_path(page)):
         chat = store.load_chat(page)
@@ -443,6 +447,8 @@ def _run(claude: str, page: str, fid: str, job: str, prompt: str, resume: str | 
         th['claude_session'] = session
         if not resume:
             th['mode'], th['cwd'] = mode, cwd
+        elif saved_cwd and cwd != saved_cwd:
+            th['cwd'] = cwd  # the next message resumes here, without the fallback
         prev_total = next((m['total'] for m in reversed(th['messages']) if m.get('total') is not None), None)
         if total is None:
             cost = None

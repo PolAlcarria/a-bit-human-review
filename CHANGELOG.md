@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- A resumed side chat on a commit whose worktree was pruned (after a re-review, or three newer reviews) answered
+  `Error: FileNotFoundError(2, 'No such file or directory')`. It now runs in the page's current checkout and keeps
+  that folder for the rest of the thread. When Claude cannot start, the error names the missing path or program.
+
 ## [0.4.1] - 2026-11-04
 
 ### Fixed
