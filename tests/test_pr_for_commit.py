@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import support  # noqa: F401  first: points the tool at a scratch environment before it is imported
 
 import json
