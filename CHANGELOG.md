@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-04
+
 ### Changed
 - The list of reviews has two tabs, **Code reviews** and **Diff reviews**, each with its count of open cards, its own
   Done and Archived folds and its own empty state. The address keeps the tab (`/#code`, `/#diff`), "← All reviews" on a
