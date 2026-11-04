@@ -133,7 +133,8 @@ def branch_pr(cwd: str) -> int | None:
 
 
 def pr_for_commit(root: Path, sha: str, slug: str) -> int | None:
-    """The PR whose head is this commit. Skips PRs from the default branch, such as a develop → main release PR."""
+    """The PR that holds this commit: the one whose head it is, else the only PR that holds it, since the author may
+    have pushed since the review. Skips PRs from the default branch, such as a develop → main release PR."""
     if not slug:
         return None
     try:
@@ -142,11 +143,13 @@ def pr_for_commit(root: Path, sha: str, slug: str) -> int | None:
         pulls = json.loads(r.stdout) if r.returncode == 0 else []
     except (OSError, subprocess.TimeoutExpired, ValueError):
         pulls = []
-    for p in pulls:
-        head = p.get('head') or {}
-        if (head.get('sha') or '').startswith(sha.lower()) and head.get('ref') != (head.get('repo') or {}).get('default_branch'):
+    heads = [(p, p.get('head') or {}) for p in pulls]
+    candidates = [(p, head) for p, head in heads if head.get('ref') != (head.get('repo') or {}).get('default_branch')]
+    for p, head in candidates:
+        if (head.get('sha') or '').startswith(sha.lower()):
             return p['number']
-    return None
+    # No head match: the author pushed after the review. One PR still holding the commit is the reviewed one.
+    return candidates[0][0]['number'] if len(candidates) == 1 else None
 
 
 def pr_patch(root: Path, pr: int, slug: str | None = None) -> dict | None:
@@ -283,10 +286,10 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
     is_repo = repo_root(root) is not None
     ref, base, pr_head, pr_author = None, None, None, None
     if spec.get('reviewed_sha') and not spec.get('pr'):
-        # A saved report pins a commit but names no PR: review it as the PR whose head is that commit.
+        # A saved report pins a commit but names no PR: review it as the PR that holds that commit.
         spec['pr'] = pr_for_commit(root, spec['reviewed_sha'], slug or (github_base(root) or '').removeprefix('https://github.com/'))
         if spec['pr']:
-            log(f"render: reviewed commit {spec['reviewed_sha'][:8]} is the head of PR #{spec['pr']}")
+            log(f"render: reviewed commit {spec['reviewed_sha'][:8]} belongs to PR #{spec['pr']}")
     mentioned = spec.get('mentioned_pr')
     if mentioned and not spec.get('pr'):
         spec['pr'] = branch_pr(spec['cwd'])
