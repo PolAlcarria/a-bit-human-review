@@ -227,7 +227,8 @@ review of findings. The base is the argument, else `default_base`. Nothing is se
   `handoff.summarize`, worded for a diff: "N changes requested, N resolved, N open", the requested changes with their
   lines and notes, and the instruction to make them and show what changed. Nothing is ever posted.
 - **No freshness or re-review**: a diff review has no findings to re-check (`rereview.unavailable`); after Claude changes
-  the code, `/findings diff` builds a new page. The list shows the page with its thread counts (to change / resolved).
+  the code, `/findings diff` builds a new page. The list shows it under its own tab, Diff reviews
+  ([The list of reviews](#the-list-of-reviews)).
 
 ## Chat buttons
 
@@ -269,9 +270,19 @@ The page polls `GET /api/handoff/<page>` while drafting, posting or telling.
 
 Served at `/`, filled from `GET /api/reviews`.
 
+- **Tabs**: **Code reviews** and **Diff reviews** each have a tab of their own (an ARIA tablist: the arrow keys, Home and
+  End move between them), with the count of the cards still open in it (not archived, and for code reviews not done).
+  The tab shows in the address (`/#code`, `/#diff`) and is remembered in the browser (`localStorage`); the address wins.
+  "← All reviews" links to `/#code` from a review page and to `/#diff` from a diff review. On the first load with no
+  tab in the address, an empty tab gives way to the other one when that one has pages. Each tab has its own lead text,
+  empty state, Done (code reviews only) and Archived folds.
 - **Grouping**: pages of the same PR in the same repo (or, without a PR, the same title) form one card. The newest
-  render leads; earlier renders fold under "N earlier renders".
-- **Badges**: finding count, how many are decided and marked to post or to fix (`N to fix`, own code only; findings the
+  render leads; earlier renders fold under "N earlier renders". A diff review never shares a card with a code review
+  (`reviews.group_key` keeps them apart).
+- **Diff review cards**: the branch, base, files and `+`/`−` (the page's subtitle), the threads, how many are change
+  requested ("N to change"), resolved and open, side chats and whether Claude got the triage. They have no freshness
+  check and are never Done: a diff review stays in the list until it is archived or deleted.
+- **Badges** (code reviews): finding count, how many are decided and marked to post or to fix (`N to fix`, own code only; findings the
   new commits fixed are counted apart, "N fixed since"), `● N running` while a job runs on the review ("● Reviewing new
   commits" during a re-review; the list re-reads itself every 5 s until it ends, without re-checking the PRs), side
   chats, where the triage went (from `drafts.json`: drafting, "drafts ready to approve" linking to the dialog, "✓ posted

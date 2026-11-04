@@ -1,8 +1,14 @@
 # a-bit-human-review
 
-When Claude finishes a code review in Claude Code, this opens a local page with each finding beside the code it points
-at. You mark each one **Post**, **Fix** or **Don't post**, a fork of the review session drafts the comments you chose,
-and you edit and post them as one GitHub review. Nothing is posted without your approval.
+A local page for the human part of reviewing code that Claude wrote or reviewed, in Claude Code. Two kinds of review,
+each with its own page and its own tab in the list:
+
+- **Code review**: when Claude finishes a review, each finding opens beside the code it points at. You mark it **Post**,
+  **Fix** or **Don't post**, a fork of the review session drafts the comments you chose, and you edit and post them as
+  one GitHub review. Nothing is posted without your approval.
+- **Diff review**: before any review that hunts for problems, read every change of your branch yourself, line by line.
+  Select lines to ask Claude about them or to request a change, then hand the requested changes back to the session
+  that wrote the code.
 
 ![Reviewing PR #4242: post three findings, draft the comments, approve and post](docs/demo.gif)
 
@@ -12,10 +18,17 @@ and you edit and post them as one GitHub review. Nothing is posted without your 
 FINDING_VIEWER_EXTRACT=0 python3 finding_viewer.py examples/review.md
 ```
 
-With no PR behind it, the review is of your own code: findings are **Fix** or **Won't fix**, and **Send fixes to
-session** hands the Fix ones back to Claude.
+## What it does
 
-![Triaging the same review on your own code](docs/demo-local.gif)
+| | |
+|---|---|
+| [Code review of a PR](#code-review) | Triage each finding (post, fix, don't post) with the code beside it, then draft, edit and post the comments as one GitHub review |
+| [Code review of your own code](#your-own-code) | No PR: findings are Fix or Won't fix, and **Send fixes to session** hands them back to Claude |
+| [Review the new commits](#when-the-pr-moves-on) | When the PR gets new commits, Claude re-reviews them and your triage carries over; findings declined on the PR stay dismissed |
+| [Diff review](#diff-review-read-what-claude-wrote) | `/findings diff`: every change of the branch as one diff, a tree of files with search, threads on lines, change requests sent to the session |
+| [Side chat](#the-side-chat) | Discuss any finding or selection with a read-only Claude that can read the repo, or with a fork of the session that wrote the code |
+| [The list of reviews](#the-list-of-reviews) | Code reviews and diff reviews in separate tabs, with their triage, what runs on them, PR freshness, Done and Archive |
+| [Your own chat buttons](#your-own-chat-buttons) | The quick questions under the chat, per kind of page, from a JSON file |
 
 ## Requirements
 
@@ -56,38 +69,93 @@ Use one way, not both: with the plugin and the manual hooks, every hook runs twi
 **check the setup** with `/a-bit-human-review:findings doctor` (or `/findings doctor`, or `python3 <clone>/finding_viewer.py
 doctor`): one PASS / WARN / FAIL line per requirement, the hooks, the command, the server and the settings.
 
-## First use
+## Commands
+
+`/findings` is `/a-bit-human-review:findings` with the plugin.
+
+| Command | Opens |
+|---|---|
+| `/findings` | The latest review in this session, else the newest saved report of the repository, else the list |
+| `/findings path/to/report.md` | A saved review report |
+| `/findings diff [base]` | The diff review of the current branch since its base |
+| `/findings list` | The list of all reviews |
+| `/findings decisions` | Prints your latest triage |
+| `/findings doctor` | Checks the setup |
+
+## Code review
 
 1. Ask for a review and name the viewer: "review PR 123 and open it in the finding viewer". When the turn ends, the
    page opens (or, with `auto_open` off, is built and its address printed). After any review you can also run
-   `/findings` (`/a-bit-human-review:findings` with the plugin).
+   `/findings`. Reviews of a local branch or of the working tree work too, not only PRs.
 2. Decide each finding: `a` post, `f` fix (your own code only: Claude changes the code when you next write in the
    session, and never posts it), `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
-   choose where the comment goes. A review with no PR posts nothing: its findings are `f` fix or `r` won't fix.
-3. On a PR review, click **Draft comments**, edit the drafts and their levels, then **Approve & post**. Or write in the
-   review session: your next message carries the triage, and Claude posts only what you approved, after your yes.
-   On your own code, **Send fixes to session** hands your triage, with its findings marked Fix, to the review
-   session at once.
-4. When the PR gets new commits, the page offers **Review the N new commits** and carries your triage to the new head.
+   choose where the comment goes. Your triage saves as you go.
+3. Click **Draft comments**: a fork of the review session, which knows the whole review, writes the comments you chose.
+   Edit the drafts, their levels (Must-fix, Should-fix, Suggestion, Nit, Question) and the review type, then
+   **Approve & post**. Or write in the review session: your next message carries the triage, and Claude posts only
+   what you approved, after your yes.
+4. After posting, the review session is told what was posted, so it is not posted twice.
 
-`/findings list` opens all reviews, `/findings path/to/report.md` a saved report, `/findings decisions` prints your
-latest triage. Reviews of a local branch or working tree work too, not only PRs.
+The **Sessions** panel in the toolbar shows what runs on the page (drafting, side chats, a re-review) with Stop, and
+the Claude sessions behind it, each with a `claude --resume` command to open it yourself.
 
-## Reading what Claude wrote: the diff review
+### Your own code
 
-Before (or instead of) a code review that hunts for problems, read the code yourself. `/findings diff [base]` opens
-every change of the current branch since its base (the repo's base branch, or the one you name), committed or not, as
-one diff you read line by line, like a draft PR that does not exist yet.
+With no PR behind it (or on a PR you opened), the review is of your own code: findings are **Fix** or **Won't fix**,
+and **Send fixes to session** hands the Fix ones to the review session at once.
 
-- Click a line number (shift-click for a range) or drag over the code, then **Ask Claude** or **Request a change**.
-  Each selection is a thread with the same side chat as a review's findings: Claude gets those lines with the code
-  around them, can read the rest of the repo, and cannot edit anything.
-- The changed files are listed as folders you can fold, with a search by name (`/` focuses it).
-- A thread is open (a question), **change requested** (you want the code changed) or **resolved**. Your note on a
-  change request says what the code should do instead.
-- **Send changes to session** hands every requested change to the Claude Code session the diff was opened from, at
-  once; or write in that session and your next message carries them.
+![Triaging the same review on your own code](docs/demo-local.gif)
+
+### When the PR moves on
+
+The page checks the PR against the commit it reviewed: up to date, N new commits (and how many findings sit on changed
+code), force-pushed, merged or closed, and whether you already approved it. When the PR has new commits, **Review the N
+new commits** has a fork of the review session read them: each finding comes back fixed in the new commits, changed
+or unchanged, new findings are added, and your triage carries over to the new head. A finding someone on the PR declined (the change will
+not be made) comes back **dismissed**, marked Don't post, tagged with who declined it and why, and is not raised again.
+
+## Diff review: read what Claude wrote
+
+![Diff review: search the files, ask Claude about two lines, turn the answer into a change request and send it to the session](docs/demo-diff.gif)
+
+`/findings diff [base]` opens every change of the current branch since its base (the repo's base branch, or the one you
+name), committed or not, as one diff you read line by line, like a draft PR that does not exist yet. Nothing is sent to
+Claude to build it, and nothing is ever posted.
+
+- **Files**: the changed files are a tree of folders that fold (**Fold all** / **Unfold all**, remembered per page),
+  one row each, with an icon by kind, the threads on it, `+`/`−` and the status (A, M, D; deleted files struck
+  through). A long name keeps its extension in sight and shows whole on hover; **Slide long names** makes cut names
+  slide to show their end. The search box (`/`) filters the files by name; Enter opens the first one.
+- **Reading**: the hunks with three lines of context, gaps that open 20 lines at a time or whole, and removed lines
+  shown where they were. `[` and `]` change file, `c` focuses the chat, `h` hides it, Esc clears the selection.
+- **Threads**: click a line number (shift-click for a range) or drag over the code, then **Ask Claude** or **Request a
+  change**. A thread is open (a question), **change requested** (your note says what the code should do instead) or
+  **resolved**. When Claude words a change in its answer, **Use as change request** makes it your note.
+- **Hand-back**: **Send changes to session** gives every requested change, with its lines and note, to the Claude Code
+  session the diff was opened from, at once; or write in that session and your next message carries them. **Copy
+  requests** copies them as text, for any other chat.
 - The page shows the code as it was when you opened it. After Claude changes the code, run `/findings diff` again.
+
+## The side chat
+
+Every finding and every diff thread has its own chat with Claude. It gets the lines with the code around them and your
+note, can read the rest of the repository (a worktree of exactly the commit the page shows), and cannot edit or
+post anything. In the ⚙ panel, pick the model and the context: the finding or lines only (fast and cheap), or a fork of
+the session that wrote the review or the code, so Claude knows why it wrote what it wrote. A drafted comment in an
+answer can be used as your note in one click.
+
+## The list of reviews
+
+`/findings list` (or **← All reviews** on any page) opens every stored review, with **Code reviews** and **Diff
+reviews** in tabs of their own, each with a count of what is still open. The address keeps the tab (`/#code`,
+`/#diff`), and each page links back to its own.
+
+- **Code reviews**: one card per PR (re-renders of the same PR fold under it), with its findings, how many are decided,
+  to post or to fix, side chats, what runs now, where the triage went (drafting, drafts ready to approve, posted to
+  GitHub, sent to Claude) and the PR's freshness. PRs that are merged, closed or approved by you move to **Done**.
+- **Diff reviews**: one card per branch, with its base, files and `+`/`−`, threads, changes requested, resolved and
+  open, and whether the changes were sent to Claude.
+- **Archive** puts a card away until the PR (or the branch) is reviewed again; **Delete** takes two clicks.
 
 ## Your own chat buttons
 
@@ -109,18 +177,18 @@ point is in [examples/chat-buttons.json](examples/chat-buttons.json).
 
 - **Reading the findings:** a headless `claude -p` (Sonnet) reads them out of any review format and finds the code
   each one points at: about a minute and $0.10–0.30 per review. Set `extract.enabled` to false to use only the
-  built-in parser (markdown findings with `file:line` anchors).
+  built-in parser (markdown findings with `file:line` anchors). A diff review needs no Claude to build.
 - **Draft comments, Review the new commits** and side chats in fork mode resume a fork of the review session, so each
   costs about one more turn of that session. A side chat in its default mode starts a small session that knows only the
   finding, and each later message resumes it.
 - **Transcripts it creates** under `~/.claude/projects` (the forks, and a side chat's first session when stopped) are
   deleted once done; `delete_forks` false keeps them.
 - **After posting**, the fork tells the review session what was posted (a `claude -p` that may only use
-  `SendMessage`), so it is not posted twice.
+  `SendMessage`), so it is not posted twice. **Send fixes / changes to session** use the same kind of relay.
 - **Data** (pages with code excerpts of the reviewed repos, triage, chats, clones and worktrees) lives in
   `~/.local/share/a-bit-human-review`, or for the plugin in `~/.claude/plugins/data/<plugin id>/`, which
   `claude plugin uninstall` deletes unless you pass `--keep-data`. Set `FINDING_VIEWER_DATA` to an absolute path to
-  use another folder. The page is served on 127.0.0.1 only.
+  use another folder. The newest 40 pages are kept. The page is served on 127.0.0.1 only.
 
 ## Settings
 
@@ -137,12 +205,14 @@ prints the file's path and the effective values.
 | `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review forks |
 | `chat_model` | Claude's default | `FINDING_VIEWER_CHAT_MODEL` | Side chat model, until you pick one in the page's ⚙ panel |
 | `report_glob` | `.claude/.history/code-reviews/*/*.md` | `FINDING_VIEWER_REPORT_GLOB` | Saved review reports, relative to the repository root |
-| `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR (else `origin/HEAD`, develop, main, master) |
+| `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR, and for `/findings diff` (else `origin/HEAD`, develop, main, master) |
 | `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the fork transcripts this tool creates |
 | `auto_open` | `true` | `FINDING_VIEWER_AUTO_OPEN` (`0` = off) | Open the browser when the Stop hook has a review's page ready. Off, the hook builds the page and tells where it is; `/findings` and the list page still open pages |
 
 ## More
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): processes, modules, data model, job lifecycle, routes, state files.
 - [docs/behaviour.md](docs/behaviour.md): how each feature behaves, in detail.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): processes, modules, data model, job lifecycle, routes, state files.
 - [CONTRIBUTING.md](CONTRIBUTING.md): tests, the test server, the rules for changes.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each version.
+- The GIFs above are recorded by `demo/record.sh [pr] [local] [diff]`, against stubs of Claude and GitHub.

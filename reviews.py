@@ -98,8 +98,11 @@ def _handed(page: str, st: dict | None, owner: str | None, version: str, seen: d
 
 
 def group_key(data: dict) -> str:
-    """The list shows one card per PR in a repo, or per title for reviews without a PR."""
+    """The list shows one card per PR in a repo, or per title for reviews without a PR. A diff review never shares a card
+    with a code review: the list shows them under tabs of their own."""
     repo, pr = data.get('repo_name') or '', data['pr']
+    if data.get('kind') == 'diff':
+        return f"diff:{repo}:{data['title']}"
     return f'{repo}#{pr}' if pr else f"{repo}:{data['title']}"
 
 

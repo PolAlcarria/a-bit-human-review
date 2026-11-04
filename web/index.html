@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Code reviews · a-bit-human-review</title>
+<title>Reviews · a-bit-human-review</title>
 <style>
 /*__SHARED_CSS__*/
 :root {
@@ -57,15 +57,34 @@ details.fold > summary { cursor: pointer; font-size: 13px; color: var(--muted); 
 details.fold > summary:hover { color: var(--text); }
 details.fold .group { opacity: .8; }
 .empty { color: var(--muted); text-align: center; padding: 56px 16px; border: 1px dashed var(--border); border-radius: 10px; }
+/* The two kinds of page, one tab each: code reviews (findings to post or fix) and diff reviews (threads on your own diff). */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 14px 0 16px; }
+.tab { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: 600 14px var(--sans);
+  padding: 8px 12px 9px; margin-bottom: -1px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--link); }
+.tab:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; border-radius: 6px 6px 0 0; }
+.tab .n { font-size: 12px; font-weight: 500; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; color: var(--muted); }
+.tab[aria-selected="true"] .n { border-color: color-mix(in srgb, var(--link) 50%, transparent); color: var(--link); }
+.tab .ico { width: 16px; height: 16px; flex: none; }
+.what .sub.diffsub { font-family: var(--mono); font-size: 11.5px; }
 </style>
 </head>
 <body>
 <main>
-  <h1 id="heading" tabindex="-1">Code reviews</h1>
+  <h1 id="heading" tabindex="-1">Reviews</h1>
+  <div class="tabs" role="tablist" aria-label="Kind of review">
+    <button class="tab" role="tab" id="tab-code" data-tab="code" aria-controls="list" aria-selected="true">
+      <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M1.5 3.25c0-.97.78-1.75 1.75-1.75h9.5c.97 0 1.75.78 1.75 1.75v6.5c0 .97-.78 1.75-1.75 1.75H8.06l-2.78 2.52A.75.75 0 0 1 4 13.47V11.5h-.75c-.97 0-1.75-.78-1.75-1.75Zm1.75-.25a.25.25 0 0 0-.25.25v6.5c0 .14.11.25.25.25h1.5a.75.75 0 0 1 .75.75v1.06l1.75-1.6a.75.75 0 0 1 .5-.21h5a.25.25 0 0 0 .25-.25v-6.5a.25.25 0 0 0-.25-.25Z"/></svg>
+      Code reviews <span class="n" id="n-code">0</span></button>
+    <button class="tab" role="tab" id="tab-diff" data-tab="diff" aria-controls="list" aria-selected="false" tabindex="-1">
+      <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8.75 1.75V5H12a.75.75 0 0 1 0 1.5H8.75v3.25a.75.75 0 0 1-1.5 0V6.5H4A.75.75 0 0 1 4 5h3.25V1.75a.75.75 0 0 1 1.5 0ZM4 13h8a.75.75 0 0 1 0 1.5H4A.75.75 0 0 1 4 13Z"/></svg>
+      Diff reviews <span class="n" id="n-diff">0</span></button>
+  </div>
   <p class="lead" id="lead">Loading…</p>
   <p class="err" id="err" role="alert" hidden></p>
   <p class="sr-only" id="status" role="status"></p>
-  <div id="list"></div>
+  <div id="list" role="tabpanel" aria-labelledby="tab-code"></div>
 </main>
 <script nonce="__NONCE__">
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -87,9 +106,16 @@ const armed = new Set();  // pages whose Delete button waits for the second clic
 let doneOpen = false, archivedOpen = false;
 let listSig = '', pollTimer = null;
 
-function groups() {
+// Which tab shows: #code or #diff in the address (the review pages link back to their own), else the last one you chose.
+const TABS = ['code', 'diff'];
+const kindOf = r => r.kind === 'diff' ? 'diff' : 'code';
+function storedTab() { try { return localStorage.getItem('abhr-list-tab'); } catch (e) { return null; } }
+let tab = [location.hash.slice(1), storedTab()].find(t => TABS.includes(t)) || 'code';
+
+// The cards of one kind of page (both kinds when `kind` is left out).
+function groups(kind) {
   const byKey = new Map();
-  for (const r of REVIEWS) {
+  for (const r of REVIEWS.filter(r => !kind || kindOf(r) === kind)) {
     if (!byKey.has(r.group)) byKey.set(r.group, []);
     byKey.get(r.group).push(r);
   }
@@ -131,9 +157,11 @@ function triageBadges(r) {
   // A diff review has threads you started, not findings: the ones you did not mark are open questions.
   const out = [];
   if (r.kind === 'diff') {
-    out.push('<span class="badge" title="Read the diff of the branch line by line">Diff review</span>', `<span class="badge">${plural(r.findings, 'thread')}</span>`);
+    const open = r.findings - (r.fix || 0) - r.skip;
+    out.push(r.findings ? `<span class="badge">${plural(r.findings, 'thread')}</span>` : '<span class="badge" title="Select lines on the page to ask Claude about them or to request a change">no threads yet</span>');
     if (r.fix) out.push(`<span class="badge fix" title="Changes you asked Claude to make">${r.fix} to change</span>`);
-    if (r.skip) out.push(`<span class="badge">${r.skip} resolved</span>`);
+    if (r.skip) out.push(`<span class="badge ok">${r.skip} resolved</span>`);
+    if (open > 0) out.push(`<span class="badge" title="Threads you have not marked: questions to Claude">${open} open</span>`);
   } else {
     out.push(`<span class="badge">${plural(r.findings, 'finding')}</span>`);
     out.push(decided ? `<span class="badge${decided === r.findings ? ' ok' : ''}">${decided}/${r.findings} decided</span>` : '<span class="badge">not triaged</span>');
@@ -173,17 +201,19 @@ const lockAttr = on => on ? ` aria-disabled="true" title="${esc(LOCKED)}"` : '';
 function row(r, newest, groupLocked = false) {
   const href = '/' + encodeURIComponent(r.page) + '.html';
   const name = newest ? r.title : `Earlier render · ${when(r.created)}`;
-  const sub = [];
+  const sub = [], diff = r.kind === 'diff';
   if (newest) sub.push(esc(when(r.created)));
-  if (newest && r.repo) sub.push(esc(r.repo));
+  if (newest && r.repo && !diff) sub.push(esc(r.repo));
   if (r.reviewed) sub.push(`commit <code>${esc(r.reviewed)}</code>`);
   if (newest && r.pr_author) sub.push(`opened by <b>${esc(r.pr_author)}</b>`);
   if (newest && r.pr_url) sub.push(`<a href="${esc(r.pr_url)}" target="_blank" rel="noopener">PR on GitHub ↗</a>`);
   return `<div class="row">
-    <div class="what"><a class="t" href="${href}">${esc(name)}</a><div class="sub">${sub.map(s => `<span>${s}</span>`).join('')}</div></div>
-    <div class="badges">${triageBadges(r)}${newest ? freshBadge(r) + mineBadge(r) : ''}</div>
+    <div class="what"><a class="t" href="${href}">${esc(name)}</a><div class="sub">${sub.map(s => `<span>${s}</span>`).join('')}</div>${newest && diff && r.subtitle
+      ? `<div class="sub diffsub">${esc(r.subtitle)}</div>` : ''}</div>
+    <div class="badges">${triageBadges(r)}${newest && !diff ? freshBadge(r) + mineBadge(r) : ''}</div>
     <div class="acts">${newest ? `<button class="act arch" data-act="arch" data-page="${esc(r.page)}" data-archived="${r.archived ? 1 : 0}"${groupLocked ? lockAttr(true) : ` title="${r.archived
-      ? 'Move this review back to the list' : 'Move this review out of the list until the PR is reviewed again'}"`}>${r.archived ? 'Unarchive' : 'Archive'}<span class="sr-only"> ${esc(name)}</span></button>` : ''}
+      ? 'Move this review back to the list' : diff ? 'Move this diff review out of the list until you open a new one of this branch'
+      : 'Move this review out of the list until the PR is reviewed again'}"`}>${r.archived ? 'Unarchive' : 'Archive'}<span class="sr-only"> ${esc(name)}</span></button>` : ''}
     <button class="act del${armed.has(r.page) ? ' armed' : ''}" data-act="del" data-page="${esc(r.page)}"${r.locked ? lockAttr(true) : ' title="Delete this page with its triage and chats"'}>${armed.has(r.page)
       ? 'Click again to delete' : `Delete<span class="sr-only"> ${esc(name)}</span>`}</button></div>
   </div>`;
@@ -198,19 +228,48 @@ function card(g) {
 
 const fold = (kind, open, label, gs) => `<details class="fold" data-fold="${kind}"${open ? ' open' : ''}><summary data-sum="${kind}">${label}</summary>${gs.map(card).join('')}</details>`;
 
+const LEAD = {
+  code: n => `${plural(n, 'code review')}, newest first: the findings Claude raised, to post on the PR or to fix in your own code. Re-renders of the same PR are folded under it; PRs that are merged, closed or approved by you move to Done, and Archive puts a review away until its PR is reviewed again. Triage saves as you go; on a review page, Draft comments turns it into a GitHub review you approve before it is posted.`,
+  diff: n => `${plural(n, 'diff review')}, newest first: your branch read line by line, with the questions you asked Claude and the changes you requested. Nothing here is ever posted; Send changes to session hands the requested changes to the session that wrote the code. Diffs of the same branch are folded under the newest.`,
+};
+const EMPTY = {
+  code: 'No code reviews yet. A page appears here when Claude finishes a code review, or run <code>/findings</code> after one.',
+  diff: 'No diff reviews yet. Run <code>/findings diff</code> on a branch to read every change since its base, line by line.',
+};
+
+// Keyboard: the arrow keys, Home and End move between the tabs (a roving tabindex), and the tab that gets focus shows.
+function paintTabs() {
+  for (const t of TABS) {
+    const b = document.getElementById('tab-' + t), on = t === tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    // The count is of the cards still open: archived ones and, for code reviews, the ones that are done are left out.
+    document.getElementById('n-' + t).textContent = groups(t).filter(g => !g[0].archived && !(t === 'code' && isDone(g[0]))).length;
+  }
+  list.setAttribute('aria-labelledby', 'tab-' + tab);
+}
+function setTab(t, focus = false) {
+  if (!TABS.includes(t)) return;
+  tab = t;
+  try { localStorage.setItem('abhr-list-tab', t); } catch (e) { /* private window: the address still keeps it */ }
+  history.replaceState(null, '', '#' + t);
+  render();
+  if (focus) document.getElementById('tab-' + t).focus();
+}
+
 function render() {
-  const gs = groups();
-  // A card is archived when its newest render is, so a new review of an archived PR comes back by itself.
+  paintTabs();
+  const gs = groups(tab);
+  // A card is archived when its newest render is, so a new review of an archived PR comes back by itself. A diff review
+  // has no PR, so it is never done: it stays open until you archive it.
   const archived = gs.filter(g => g[0].archived);
-  const done = gs.filter(g => !g[0].archived && isDone(g[0]));
-  const active = gs.filter(g => !g[0].archived && !isDone(g[0]));
+  const done = tab === 'code' ? gs.filter(g => !g[0].archived && isDone(g[0])) : [];
+  const active = gs.filter(g => !g[0].archived && !done.includes(g));
   const away = [done.length && 'done', archived.length && 'archived'].filter(Boolean).join(' or ');
-  document.getElementById('lead').textContent = REVIEWS.length
-    ? `${plural(gs.length, 'review')}, newest first. Re-renders of the same PR are folded under it; PRs that are merged, closed or approved by you move to Done, and Archive puts a review away until its PR is reviewed again. Triage saves as you go; on a review page, Draft comments turns it into a GitHub review you approve before it is posted.`
-    : '';
+  document.getElementById('lead').textContent = REVIEWS.length ? (gs.length ? LEAD[tab](gs.length) : '') : '';
   rerender(document.getElementById('list'), !gs.length
-    ? '<div class="empty">No reviews yet. A page appears here when Claude finishes a code review, or run <code>/findings</code> after one.</div>'
-    : (active.length ? active.map(card).join('') : `<div class="empty">Nothing open. Every review is ${away}.</div>`)
+    ? `<div class="empty">${EMPTY[tab]}</div>`
+    : (active.length ? active.map(card).join('') : `<div class="empty">Nothing open. Every ${tab === 'diff' ? 'diff review' : 'review'} is ${away}.</div>`)
       + (done.length ? fold('done', doneOpen, `Done · ${done.length} (merged, closed or approved by you)`, done) : '')
       + (archived.length ? fold('archived', archivedOpen, `Archived · ${archived.length}`, archived) : ''),
     ['data-page', 'data-act', 'href', 'data-sum']);
@@ -228,7 +287,7 @@ function showError(text, from = 'action') {
 
 async function checkFreshness() {
   const now = Date.now() / 1000;
-  const queue = groups().map(g => g[0]).filter(r => r.checkable && !r.archived && !checking.has(r.page)
+  const queue = groups('code').map(g => g[0]).filter(r => r.checkable && !r.archived && !checking.has(r.page)
     && !(fresh[r.page] && now - fresh[r.page].checked_at < FRESH_MAX_AGE));
   if (!queue.length) return;
   queue.forEach(r => checking.add(r.page));
@@ -259,6 +318,11 @@ async function load(poll = false) {
   // Re-read every 5 s while something runs, so a running badge clears when its job ends. A poll rebuilds the list
   // only when it changed; any other load rebuilds it (a refused delete gives its button back).
   const sig = JSON.stringify(REVIEWS);
+  // The first load, with no tab in the address: an empty tab gives way to the other one when that one has pages.
+  if (!listSig && !TABS.includes(location.hash.slice(1)) && !groups(tab).length) {
+    const other = TABS.find(t => t !== tab && groups(t).length);
+    if (other) tab = other;
+  }
   if (!poll || sig !== listSig) render();
   listSig = sig;
   if (REVIEWS.some(r => r.running?.length)) pollTimer = setTimeout(() => { if (document.visibilityState === 'visible') load(true); }, 5000);
@@ -352,6 +416,16 @@ list.addEventListener('toggle', e => {
   if (!d.matches?.('details.older')) return;
   d.open ? openGroups.add(d.dataset.group) : openGroups.delete(d.dataset.group);
 }, true);
+const tabs = document.querySelector('.tabs');
+tabs.addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+tabs.addEventListener('keydown', e => {
+  const i = TABS.indexOf(tab);
+  const to = { ArrowRight: TABS[(i + 1) % TABS.length], ArrowLeft: TABS[(i + TABS.length - 1) % TABS.length], Home: TABS[0], End: TABS[TABS.length - 1] }[e.key];
+  if (!to) return;
+  e.preventDefault();
+  setTab(to, true);
+});
+window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (TABS.includes(t) && t !== tab) setTab(t); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
 load();
 </script>

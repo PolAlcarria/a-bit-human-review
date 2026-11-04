@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-04
+
+### Changed
+- The list of reviews has two tabs, **Code reviews** and **Diff reviews**, each with its count of open cards, its own
+  Done and Archived folds and its own empty state. The address keeps the tab (`/#code`, `/#diff`), "← All reviews" on a
+  page goes back to that page's tab, and a diff review card shows its branch, base and size, and its open threads. A
+  diff review never shares a card with a code review, and is not checked for freshness.
+
+### Added
+- README: an overview of every feature, a section on the list of reviews and `docs/demo-diff.gif`, recorded by
+  `demo/record.sh diff`: search the files, ask Claude about two lines, use the answer as a change request and send it to
+  the session. `demo/record.sh` takes the GIFs to record (`pr`, `local`, `diff`), falls back to ImageMagick 6's
+  `convert`, and `DEMO_CDN_DIR` serves the page's libraries from a local folder where cdnjs cannot be reached.
+
 ## [0.3.1] - 2026-11-03
 
 ### Changed
