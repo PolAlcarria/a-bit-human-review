@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-04
+
 ### Fixed
 - After a plugin update, or any other change to the code, the review server starts on the first try. It used to fail
   with "The review server did not start" when the old server was still stopping: `ensure_server()` waited a fixed
