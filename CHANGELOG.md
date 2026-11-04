@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-04
+
+### Fixed
+- A saved report whose PR was pushed after the review opens as a review of that PR again (Post / Don't post), not as
+  your own code (Fix / Won't fix). `pr_for_commit()` takes the only non-release PR that still holds the reviewed
+  commit when no PR has it as head; with two or more, it finds no PR rather than guess.
+
 ## [0.3.2] - 2026-11-04
 
 ### Changed

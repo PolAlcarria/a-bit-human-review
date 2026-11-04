@@ -85,9 +85,10 @@ fetched only when read). Every `gh` call passes `--repo` when the owner/repo is 
 page says so instead of showing findings with no code.
 
 **Which PR, for a saved report** (`pr_for_commit()`): a report pins a commit but names no PR, so `render()` asks `gh api
-repos/<owner>/<repo>/commits/<sha>/pulls` for the PR whose head is that commit, skipping PRs from the default branch (a
-develop → main release PR). A match makes the page a PR review: PR diff markers, a link to the PR in the header, a
-freshness check against the PR head, and "(PR #N)" in the hand-off.
+repos/<owner>/<repo>/commits/<sha>/pulls` for the PR whose head is that commit, else the only PR that still holds it
+(its author pushed after the review), skipping PRs from the default branch (a develop → main release PR). Two or more
+PRs that hold it, none at it, find no PR: the tool never guesses between them. A match makes the page a PR review: PR
+diff markers, a link to the PR in the header, a freshness check against the PR head, and "(PR #N)" in the hand-off.
 
 **Which PR, for a PR only mentioned** (`branch_pr()`): `gh pr view` in the session's folder gives the branch's own PR,
 which becomes the page's PR and title ("Code review · PR #N"). Without one, the page is a branch review. Either way the
