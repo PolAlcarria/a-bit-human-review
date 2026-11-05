@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-05
+
 ### Fixed
 - A resumed side chat on a commit whose worktree was pruned (after a re-review, or three newer reviews) answered
   `Error: FileNotFoundError(2, 'No such file or directory')`. It now runs in the page's current checkout and keeps
