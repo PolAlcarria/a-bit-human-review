@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-05
+
 ### Changed
 - The worktree of a PR review (side chat, re-review) is on the PR's head branch, tracking `origin/<branch>`, instead
   of a detached HEAD, so Orca and `git worktree list` show the branch and you can commit and push from it. It still
