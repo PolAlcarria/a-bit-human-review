@@ -1072,6 +1072,16 @@ function codeCard(f, fi, loc, li) {
   </section>`;
 }
 
+// The finding's thread on the PR as the last re-review read it (rereview.page_thread): the posted comment, then replies.
+function threadHtml(f) {
+  const t = f.rereview?.thread;
+  if (!t?.length) return '';
+  const n = t.length - 1, at = (D.rereviewed || []).at(-1)?.to || f.rereview.at;
+  return `<details class="gh-thread"${n ? ' open' : ''}><summary>On the PR · ${n ? `${n} repl${n === 1 ? 'y' : 'ies'}` : 'no replies'}<span class="muted"> · as read at ${esc(short(at))}</span></summary>
+    ${t.map((c, i) => `<div class="gh-c${i ? ' reply' : ''}"><div class="gh-h"><b>@${esc(c.who)}</b>${c.at ? ` <span class="muted">${esc(new Date(c.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</span>` : ''}${c.url ? ` <a href="${esc(c.url)}" target="_blank" rel="noopener">on GitHub ↗</a>` : ''}</div><div class="body gh-b">${markdown(c.body)}</div></div>`).join('')}
+  </details>`;
+}
+
 const cardsHtml = f => f.locations.map((loc, li) => codeCard(f, current, loc, li)).join('') ||
   '<div class="missing">This finding has no file:line anchor.</div>';
 
@@ -1087,6 +1097,11 @@ function renderDetail() {
   else if (R?.status === 'dismissed') tags.push(`<span class="tag dismissed" title="A comment on the PR says this will not be changed (seen in ${esc(short(R.at))})">Dismissed on the PR</span>`);
   else if (R?.status === 'changed') tags.push(`<span class="tag changed" title="Still applies, but what it says or where it sits changed in ${esc(short(R.at))}">Changed</span>`);
   else if (R?.status === 'new') tags.push(`<span class="tag new" title="Found in the new commits, at ${esc(short(R.at))}">New</span>`);
+  // What the author answered on the finding's thread on the PR, checked against the code by the re-review.
+  const claimedOpen = R?.author_said === 'fixed' && (R.status === 'still_applies' || R.status === 'changed');
+  if (claimedOpen) tags.push(`<span class="tag claimed" title="The author said on the PR that it is fixed; the re-review at ${esc(short(R.at))} found it still applies">Author says fixed · still applies</span>`);
+  else if (R?.author_said === 'fixed' && R.status === 'fixed') tags.push('<span class="tag fixed" title="The author said on the PR that it is fixed, and the re-review confirmed it in the code">Author’s fix confirmed</span>');
+  else if (R?.author_said === 'later') tags.push('<span class="tag" title="The author promised a follow-up on the PR">Author: later</span>');
   tags.push(`<span id="fresh-tag">${freshTag(f)}</span>`);
   for (const [k, v] of Object.entries(f.meta || {})) tags.push(`<span class="tag">${esc(k)}: ${esc(v)}</span>`);
   const s = statusOf(f);
@@ -1094,6 +1109,7 @@ function renderDetail() {
     <div class="dhead sev-${f.severity}"><span class="sev">${LABEL[f.severity]}</span><span class="fidbig">${esc(f.id)}</span>
       <h2>${esc(f.title)}</h2>${tags.join(' ')}</div>
     ${R?.status === 'fixed' && R.why ? `<p class="rr-why">Fixed in ${esc(short(R.at))}: ${esc(R.why)}</p>` : ''}
+    ${claimedOpen ? `<p class="rr-why claimed">The author said on the PR that it is fixed, but at ${esc(short(R.at))} it still applies${R.why ? ': ' + esc(R.why) : '.'}</p>` : ''}
     ${R?.status === 'dismissed' ? `<p class="rr-why">Dismissed on the PR, so marked Don't post at ${esc(short(R.at))}${R.why ? ': ' + esc(R.why) : ''}</p>` : ''}
     <div class="triage ${s || ''}" id="triage">
       <div id="tri-controls">${triControls(f)}</div>
@@ -1103,6 +1119,7 @@ function renderDetail() {
       <div class="tri-anchor" id="tri-anchor">${triAnchor(f)}</div>
     </div>
     <div class="body">${markdown(f.body)}</div>
+    ${threadHtml(f)}
     <div class="sect">Affected code${f.locations.length > 1 ? ` · ${f.locations.length} locations` : ''}</div>
     <div id="cards">${cardsHtml(f)}</div>
     <div class="keys" id="keys"></div>`, ['data-tri', 'data-mode'], () => [firstTri()]);

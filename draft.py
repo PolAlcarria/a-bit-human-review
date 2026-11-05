@@ -351,12 +351,15 @@ def post(page: str, data: dict, payload: dict) -> tuple[int, dict]:
     event = payload.get('event')
     if event not in EVENTS:
         return 400, {'error': f'event must be one of {EVENTS}'}
-    body, inline, outside = str(payload.get('body') or '').strip(), [], []
-    for c in payload.get('comments') or []:
+    body, inline, outside, posted = str(payload.get('body') or '').strip(), [], [], []
+    drafted = st['review'].get('comments') or []
+    for i, c in enumerate(payload.get('comments') or []):
         text = str(c.get('body') or '').strip()
         if not c.get('include', True) or not text:
             continue
         text = with_level(str(c.get('level') or ''), text)
+        # The page edits the drafts in their order (_kept), so the drafted comment at the same place names the finding.
+        fid = str(c.get('finding') or (drafted[i] if i < len(drafted) else {}).get('finding') or '')
         path, line = str(c.get('path') or ''), int(c.get('line') or 0)
         start = int(c['start_line']) if c.get('start_line') and int(c['start_line']) < line else None
         if path and line and in_diff(data, path, line, start):
@@ -364,8 +367,10 @@ def post(page: str, data: dict, payload: dict) -> tuple[int, dict]:
             if start:
                 item.update(start_line=start, start_side='RIGHT')
             inline.append(item)
+            posted.append({'finding': fid, 'path': path, 'line': line, 'body': text})
         else:
             outside.append(f'**`{path}:{line}`**\n\n{text}' if path else text)
+            posted.append({'finding': fid, 'in_body': True})
     if outside:
         body = '\n\n---\n\n'.join(([body] if body else []) + outside)
     if not inline and not body:
@@ -381,7 +386,7 @@ def post(page: str, data: dict, payload: dict) -> tuple[int, dict]:
                   review=_kept(st['review'], payload))
         _write(page, st)
     try:
-        pid = jobs.spawn({'kind': 'post', 'job': job, 'page': page, 'review': review})
+        pid = jobs.spawn({'kind': 'post', 'job': job, 'page': page, 'review': review, 'posted': posted})
     except OSError as exc:
         error = f'The posting process did not start: {exc!r}'
         return 500, _update(page, job, status='failed', error=error, ended=time.time()) or {'error': error}
@@ -422,10 +427,51 @@ def run_post(spec: dict, on_posted: Callable[[str], None]) -> None:
     st = _update(page, job, status='posted', ended=time.time(),
                  posted={'url': answer.get('html_url'), 'id': answer.get('id'), 'at': jobstate.now(),
                          'inline': len(review['comments']), 'event': review['event']})
+    record_posted(page, answer, review, spec.get('posted') or [])
     if not st:
         return
     on_posted(page)
     _tell(page, job, data, review, st)
+
+
+def posted_path(page: str) -> Path:
+    return store.page_dir(page) / 'posted.json'
+
+
+def record_posted(page: str, answer: dict, review: dict, comments: list[dict]) -> None:
+    """Keep, in ``posted.json``, which finding each comment of a posted review came from, so a re-review can read each
+    finding's thread on the PR. Kept apart from ``drafts.json``, which the next draft replaces."""
+    if not answer.get('id'):
+        return
+    with jobs.locked(posted_path(page)):
+        reviews = posted_reviews_recorded(page)
+        reviews.append({'id': answer['id'], 'url': answer.get('html_url'), 'at': jobstate.now(),
+                        'commit': review.get('commit_id'), 'comments': comments})
+        jobs.write_json(posted_path(page), {'reviews': reviews})
+
+
+def posted_reviews_recorded(page: str) -> list[dict]:
+    try:
+        reviews = json.loads(posted_path(page).read_text(encoding='utf-8')).get('reviews')
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [r for r in reviews if isinstance(r, dict)] if isinstance(reviews, list) else []
+
+
+def posted_reviews(page: str) -> list[dict]:
+    """Every review the page posted, with the finding behind each comment (``record_posted``). A review posted before
+    ``posted.json`` existed is read from ``drafts.json`` while it still holds it: its comments as drafted, which the
+    re-review matches to the PR's comments by file and text."""
+    reviews = posted_reviews_recorded(page)
+    st = _load(page) or {}
+    old = (st.get('posted') or {}).get('id')
+    if st.get('status') == 'posted' and old and old not in {r.get('id') for r in reviews}:
+        reviews.append({'id': old, 'url': st['posted'].get('url'), 'at': st['posted'].get('at'), 'comments': [
+            {'finding': str(c.get('finding') or ''), 'path': str(c.get('path') or ''), 'line': int(c.get('line') or 0),
+             'body': with_level(str(c.get('level') or ''), str(c.get('body') or '').strip())}
+            for c in (st.get('review') or {}).get('comments') or []
+            if c.get('include', True) and str(c.get('body') or '').strip()]})
+    return reviews
 
 
 def _tell(page: str, job: str, data: dict, review: dict, st: dict) -> None:

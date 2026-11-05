@@ -34,6 +34,7 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
     local = diff or not (data.get('pr') or dec.get('pr'))
     # Findings the new commits fixed (rereview.py) stay on the page, but there is nothing to post or decide for them.
     fixed = rereview.fixed(data)
+    rereviewed = {f['id']: f.get('rereview') or {} for f in data.get('findings') or []}
     items = [(k, v) for k, v in (dec.get('findings') or {}).items() if k not in fixed]
     threads = {k: t for k, t in (chat_state.get('threads') or {}).items() if t.get('messages')}
     for fid in threads:
@@ -68,6 +69,10 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
         label = ("Reviewer's own comment, to post word for word"
                  if v.get('mode') == 'comment' and v.get('status') != 'fix' and not local else "Reviewer's note")
         out = [f'  {label}: ' + note.replace('\n', '\n    ')] if note else []
+        rr = rereviewed.get(fid) or {}
+        if rereview.claimed_but_open(rr):
+            out.append('  The author said on the PR that it is fixed, but the re-review found it still applies'
+                       + (f": {rr['why'].rstrip('.')}" if rr.get('why') else '') + '.')
         # Not the page's own lines (a re-review noting that the code moved on).
         msgs = [m for m in threads.get(fid, {}).get('messages') or [] if m.get('role') != 'system']
         last = next((m['text'] for m in reversed(msgs) if m.get('role') == 'claude' and not m.get('error')), None)

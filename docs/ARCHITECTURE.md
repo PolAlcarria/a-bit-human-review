@@ -135,8 +135,9 @@ an older file can lack some of them.
   `session_id`, `review_session`, `pr`, `pr_author`, `base`, `ref`, `blob_ref`, `ref_label`, `merge_base`, `github`,
   `repo_root`, `repo_name`, `notes`, `findings`, `files` (by path: `lines`, `lang`, `added`, `removed`, `hunks`,
   `changed`, `truncated`), and `rereviewed` after a re-review. A finding: `id`, `severity`, `title`, `body`,
-  `recurring`, `meta`, `locations` (`raw`, `path`, `start`, `end`, `ambiguous`), and `rereview` (`status`, `at`, `why`)
-  after a re-review. A `rereviewed` entry: `from`, `to`, `at`, `commits`, `rewritten`, `counts`, `discarded_drafts`.
+  `recurring`, `meta`, `locations` (`raw`, `path`, `start`, `end`, `ambiguous`), and `rereview` (`status`, `at`, `why`,
+  `author_said`, `thread`: `who`, `at`, `body`, `url`) after a re-review. A `rereviewed` entry: `from`, `to`, `at`,
+  `commits`, `rewritten`, `counts`, `discarded_drafts`.
 - **`decisions.json`** (`PUT /api/decisions/<page>`, `triage.py`): `page`, `title`, `subtitle`, `session_id`,
   `pr`, `repo_root`, `updated` (the tab's clock), `rereviews` (how many re-reviews the tab saw), `saved_at` (set by the
   server), `findings`. Each finding id maps to `status` (`post`, `fix`, `skip` or null), `note`, `mode` (`note` or
@@ -152,6 +153,8 @@ an older file can lack some of them.
   `drafted_at`, `ended`, `review` (`body`, `event`, `comments`: `finding`, `title`, `path`, `line`, `start_line`,
   `level`, `body`, `own`, `in_diff`), `posted` (`url`, `id`, `at`, `inline`, `event`), `telling`, and `told` (`ok`,
   `to`, `error`, `ended`).
+- **`posted.json`** (`draft.record_posted`): `reviews`, each with `id`, `url`, `at`, `commit` and `comments`
+  (`finding`, then `path`, `line` and `body` as posted, or `in_body: true` for one GitHub took only in the review body).
 - **`send.json`** (`handoff.py`): `status` (`sending`, `sent`, `failed`), `job`, `pid`, `started`, `ended`, `error`,
   `session` (the review session's id), `to` (its name), `cwd`, `version` (the triage version sent).
 - **`rereview.json`** (`rereview.py`): `status` (`reviewing`, `done`, `failed`), `started`, `ended`, `job`,
@@ -239,6 +242,7 @@ Every path is in the data folder: `FINDING_VIEWER_DATA`, else `CLAUDE_PLUGIN_DAT
 | `out/<page>/chat.json` | Threads (with a line from the page after a re-review), `claude` session ids, pending state (worker pid, job id, session) | with its page |
 | `out/<page>/freshness.json` | Last freshness check | with its page |
 | `out/<page>/drafts.json` | Drafts, their status, the fork's id, the worker's pid and job id, when it ended, the posted review's URL, whether the session was told | with its page |
+| `out/<page>/posted.json` | Each review the page posted: its id, URL, time and commit, and the finding behind each comment (path, line and text as posted, or `in_body`) | with its page |
 | `out/<page>/rereview.json` | The last re-review: reviewing (the page's lock), done with its counts, or failed with the reason; the fork, worker pid and job id, from and to which commit, whether drafts go | with its page |
 | `out/<page>/send.json` | The last Send fixes: sending, sent or failed with the reason, the review session's name, the version sent | with its page |
 | `out/<page>/locks/` (`chat.lock`, `drafts.lock`, `send.lock`, `rereview.lock`) | Empty sidecars for the file locks (the last one is the page lock, taken by every write to the page) | with its page |

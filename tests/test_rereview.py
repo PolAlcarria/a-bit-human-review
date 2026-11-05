@@ -57,17 +57,17 @@ class ParseAnswerTest(unittest.TestCase):
     def test_still_applies_entry_is_kept_as_the_review_has_it(self):
         self.assertEqual(self.parse(good_answer())[0], {
             'id': 'C1', 'status': 'still_applies', 'severity': 'critical', 'title': 't', 'body': 'b',
-            'recurring': None, 'why': '', 'anchors': []})
+            'recurring': None, 'why': '', 'author_said': 'none', 'anchors': []})
 
     def test_fixed_entry_has_its_why_with_whitespace_collapsed(self):
         self.assertEqual(self.parse(good_answer())[1], {
             'id': 'W1', 'status': 'fixed', 'severity': 'warning', 'title': 't', 'body': 'b',
-            'recurring': None, 'why': 'Guarded now', 'anchors': []})
+            'recurring': None, 'why': 'Guarded now', 'author_said': 'none', 'anchors': []})
 
     def test_new_entry_takes_the_first_id_after_the_highest_taken(self):
         self.assertEqual(self.parse(good_answer())[2], {
             'id': 'W4', 'status': 'new', 'severity': 'warning', 'title': 'Leaks a file handle', 'body': 'b',
-            'recurring': None, 'why': '', 'anchors': [
+            'recurring': None, 'why': '', 'author_said': 'none', 'anchors': [
                 {'raw': 'src/app/io.py:5', 'path': SRC, 'start': 5, 'end': 5, 'pos': 0},
                 {'raw': 'src/app/io.py:7-407', 'path': SRC, 'start': 7, 'end': 407, 'pos': 0}]})
 
@@ -81,12 +81,12 @@ class ParseAnswerTest(unittest.TestCase):
     def test_new_entry_without_id_gets_the_id_after_the_previous_new_one(self):
         self.assertEqual(self.parse(good_answer())[3], {
             'id': 'W5', 'status': 'new', 'severity': 'warning', 'title': 'Second new', 'body': 'b',
-            'recurring': None, 'why': '', 'anchors': []})
+            'recurring': None, 'why': '', 'author_said': 'none', 'anchors': []})
 
     def test_unknown_severity_becomes_finding(self):
         self.assertEqual(self.parse(good_answer())[4], {
             'id': 'F1', 'status': 'new', 'severity': 'finding', 'title': 'Q new', 'body': 'b',
-            'recurring': None, 'why': '', 'anchors': []})
+            'recurring': None, 'why': '', 'author_said': 'none', 'anchors': []})
 
     def test_new_ids_skip_taken_ids_and_each_other(self):
         self.assertEqual([a['id'] for a in self.parse(good_answer()) if a['status'] == 'new'], ['W4', 'W5', 'F1'])

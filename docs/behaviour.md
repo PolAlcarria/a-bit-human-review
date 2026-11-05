@@ -261,7 +261,9 @@ flashes it; `page.html#drafts` opens the dialog). `draft.py`, in three steps:
    api repos/<o>/<r>/pulls/<n>/reviews` on the reviewed commit. Comments outside the diff go in the review body, since
    GitHub accepts inline comments only inside hunks. A refused post keeps your edits and shows GitHub's error. The
    inject hook's state is marked, so your next message in the review session does not carry the same triage again. A
-   second click while posting is refused, and posting cannot be stopped (GitHub may already have the review).
+   second click while posting is refused, and posting cannot be stopped (GitHub may already have the review). The
+   posted review's id, and the finding behind each of its comments, are added to `out/<page>/posted.json`, which the
+   next draft does not replace, so a re-review can find each finding's thread on the PR.
 3. **Tell**: the fork is resumed once with only `SendMessage` (`send.deliver()`) and tells the review session (found in
    `~/.claude/sessions/<pid>.json`, written by Claude Code; undocumented, so anything unexpected reads as closed) what
    was posted and not to post it again. Then the fork's transcript and folder are deleted, unless the `delete_forks`
@@ -464,10 +466,15 @@ box, or the banner, whose note then takes it) and whether a save was refused mea
 take (the note says to make that change again). A failure or a Stop unlocks the page as it was, says why, and sends a
 save the lock refused again. On the rebuilt page each finding carries what the re-review found: "Fixed in f48a8e88" with
 the reason (listed under "Fixed in the new commits" at the bottom and in Copy triage, not counted as open, not drafted,
-its decision still shown), "Changed", or "New"; the header says "Re-reviewed at …". A finding that changed after you
-chose Post says "Changed since you decided Post" with a "Still post it" button, and a line you picked that changed says
-"Your chosen line changed; anchor reset". Both marks live in `decisions.json` (`recheck`, `anchor_reset`) and go when
-you decide again or pick a line (the reset note also with the next re-review).
+its decision still shown), "Changed", or "New"; the header says "Re-reviewed at …". A finding the author called fixed on
+the PR that still applies says "Author says fixed · still applies" with what is still missing (the job's message counts
+them too: "…; 1 the author called fixed still applies."), one the re-review confirmed says "Author's fix confirmed", and
+one the author put off says "Author: later". Under the finding's text, "On the PR · N replies" shows its thread as the
+last re-review read it, each comment with its author, date and a link to it on GitHub (open when there are replies). The
+hand-off to the review session says under such a finding that the author's claim does not hold. A finding that changed
+after you chose Post says "Changed since you decided Post" with a "Still post it" button, and a line you picked that
+changed says "Your chosen line changed; anchor reset". Both marks live in `decisions.json` (`recheck`, `anchor_reset`)
+and go when you decide again or pick a line (the reset note also with the next re-review).
 
 The freshness check says the PR moved past the reviewed commit; this reviews those commits and brings the page to the
 new head (decisions E1–E4 of 2026-10-19).
@@ -484,29 +491,39 @@ new head (decisions E1–E4 of 2026-10-19).
   setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
   anchors, body and what the new commits touched, the PR's comments (`pr_comments()`: every review thread with its
   replies, then the conversation, read with `gh api …/pulls/N/comments` and `…/issues/N/comments`, at most 20 000
-  characters; a PR whose comments cannot be read dismisses nothing), and the triage; it asks the fork to review what
-  the commits changed and to re-check each finding. `--json-schema` returns per finding an id, a status
-  (`still_applies`, `changed`, `fixed`, `dismissed`, `new`), title, severity, body, recurring, anchors at the new head
-  and, for `fixed`, a one-line why (for `dismissed`, who declined it on the PR and why). `dismissed` means a comment
-  on the PR says the change will not be made; a problem a comment already declined is not reported as new.
-  `parse_answer()` checks it like `extract.py`: a status outside the five, an id the page does not have, a finding
-  twice, or an open finding left out (one fixed or dismissed before may be) fails the job with that reason. New findings get the next id for their severity
-  letter after every id the page ever showed (findings never leave the page; triage and chat ids count too).
+  characters; a PR whose comments cannot be read dismisses nothing), and the triage; it asks the fork to review what the
+  commits changed and to re-check each finding. **Each finding's own thread** goes under that finding instead of in the
+  list (`finding_threads()`): a comment is a finding's when it is in a review the page posted (`draft.posted_reviews()`:
+  `posted.json`, or `drafts.json` for a review posted before it existed), on the same file, with the same text, else on
+  the same line; its replies follow it, at most 6 000 characters, and 60 000 for every thread and side chat together
+  (the rest says it was left out). So does the finding's **side chat** (`side_chats()`): its latest messages from you
+  and Claude, at most 3 000 characters, without the page's own lines or failed replies. The fork says in `author_said`
+  what the author answered on the thread (`fixed`, `wont_fix`, `later`, `other`, `none`) and checks it against the code:
+  a finding the author calls fixed that still applies is `still_applies` or `changed`, and `why` says what is still
+  missing. `--json-schema` returns per finding an id, a status (`still_applies`, `changed`, `fixed`, `dismissed`,
+  `new`), title, severity, body, recurring, anchors at the new head and, for `fixed`, a one-line why (for `dismissed`,
+  who declined it on the PR and why). `dismissed` means a comment on the PR says the change will not be made; a problem
+  a comment already declined is not reported as new. `parse_answer()` checks it like `extract.py`: a status outside the
+  five, an id the page does not have, a finding twice, or an open finding left out (one fixed or dismissed before may
+  be) fails the job with that reason. New findings get the next id for their severity letter after every id the page
+  ever showed (findings never leave the page; triage and chat ids count too).
 - **The update**: `git diff -U0 -M <old> <new>` gives `freshness.map_line()`. The findings, at the new head, go through
   `render.build_page()` with `reviewed_sha` = the new head and the page's own title, PR, repo, folder, session ids and
   name, so files, hunks, diff markers, PR author and blob links are all read again; a finding without new anchors keeps
   the old ones that map cleanly. The page data gains `rereviewed` (`from`, `to`, `at`, `commits`, `rewritten`, `counts`,
-  `discarded_drafts`, appended) and each finding its `rereview` (`status`, `at`, `why`). `carry_triage()` keeps each
-  decision, note and mode by id; a saved anchor that differs from the old default line was picked by the reviewer and
-  moves through the diff when its line is unchanged and its file is still one of the finding's, else it goes back to the
-  default and `anchor_reset` says so; a `changed` finding marked Post gets `recheck`; a finding newly `dismissed`
-  becomes Don't post (`skip`; one dismissed in an earlier re-review keeps what the reviewer chose since, and the
-  hand-off says "Dismissed on the PR … Do not raise it again" under it); new findings start undecided;
-  `updated` is set to now, so no copy a browser kept wins over it; an `anchor_reset` from an earlier re-review goes. A
-  finding that still applies, is fixed or dismissed keeps the review's own title, body and severity; only a `changed` or `new`
-  one takes the fork's words. Each side chat on a finding gets a line ([Side chat](#side-chat)), the cached check
-  becomes `current` ([Freshness](#freshness)), confirmed unposted drafts are discarded with their fork (only if still
-  unposted: a posted state and its link stay).
+  `discarded_drafts`, appended) and each finding its `rereview` (`status`, `at`, `why`; `author_said` unless `none`;
+  `thread`, the finding's thread on the PR as read, also for a finding fixed or dismissed before). `why` is kept for
+  `fixed` and `dismissed`, and for an open finding the author called fixed. `carry_triage()` keeps each decision, note
+  and mode by id; a saved anchor that differs from the old default line was picked by the reviewer and moves through the
+  diff when its line is unchanged and its file is still one of the finding's, else it goes back to the default and
+  `anchor_reset` says so; a `changed` finding marked Post gets `recheck`; a finding newly `dismissed` becomes Don't post
+  (`skip`; one dismissed in an earlier re-review keeps what the reviewer chose since, and the hand-off says "Dismissed
+  on the PR … Do not raise it again" under it); new findings start undecided; `updated` is set to now, so no copy a
+  browser kept wins over it; an `anchor_reset` from an earlier re-review goes. A finding that still applies, is fixed or
+  dismissed keeps the review's own title, body and severity; only a `changed` or `new` one takes the fork's words. Each
+  side chat on a finding gets a line ([Side chat](#side-chat)), the cached check becomes `current`
+  ([Freshness](#freshness)), confirmed unposted drafts are discarded with their fork (only if still unposted: a posted
+  state and its link stay).
 - **One step** (`_stage()`, `_commit()`), under the page lock, after checking that the job was not stopped meanwhile:
   every new file is written complete into `out/<page>/.staging-<job>/` (the triage, the chats, the freshness check,
   `page.html` and `review.json`); then the steps that put them in place are recorded in the state (`committing`); then

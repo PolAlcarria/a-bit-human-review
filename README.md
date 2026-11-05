@@ -24,7 +24,7 @@ FINDING_VIEWER_EXTRACT=0 python3 finding_viewer.py examples/review.md
 |---|---|
 | [Code review of a PR](#code-review) | Triage each finding (post, fix, don't post) with the code beside it, then draft, edit and post the comments as one GitHub review |
 | [Code review of your own code](#your-own-code) | No PR: findings are Fix or Won't fix, and **Send fixes to session** hands them back to Claude |
-| [Review the new commits](#when-the-pr-moves-on) | When the PR gets new commits, Claude re-reviews them and your triage carries over; findings declined on the PR stay dismissed |
+| [Review the new commits](#when-the-pr-moves-on) | When the PR gets new commits, Claude re-reviews them and your triage carries over; findings declined on the PR stay dismissed, and an author's "fixed" is checked against the code |
 | [Diff review](#diff-review-read-what-claude-wrote) | `/findings diff`: every change of the branch as one diff, a tree of files with search, threads on lines, change requests sent to the session |
 | [Side chat](#the-side-chat) | Discuss any finding or selection with a read-only Claude that can read the repo, or with a fork of the session that wrote the code |
 | [The list of reviews](#the-list-of-reviews) | Code reviews and diff reviews in separate tabs, with their triage, what runs on them, PR freshness, Done and Archive |
@@ -110,9 +110,12 @@ and **Send fixes to session** hands the Fix ones to the review session at once.
 
 The page checks the PR against the commit it reviewed: up to date, N new commits (and how many findings sit on changed
 code), force-pushed, merged or closed, and whether you already approved it. When the PR has new commits, **Review the N
-new commits** has a fork of the review session read them: each finding comes back fixed in the new commits, changed
-or unchanged, new findings are added, and your triage carries over to the new head. A finding someone on the PR declined (the change will
-not be made) comes back **dismissed**, marked Don't post, tagged with who declined it and why, and is not raised again.
+new commits** has a fork of the review session read them: each finding comes back fixed in the new commits, changed or
+unchanged, new findings are added, and your triage carries over to the new head. A finding someone on the PR declined
+(the change will not be made) comes back **dismissed**, marked Don't post, tagged with who declined it and why, and is
+not raised again. Each finding you posted is re-checked with its own thread on the PR and your side chat about it: what
+the author answered is checked against the code, so "done" on a finding that still applies shows as **Author says fixed
+· still applies** with what is missing, and the thread itself shows under the finding.
 
 ## Diff review: read what Claude wrote
 

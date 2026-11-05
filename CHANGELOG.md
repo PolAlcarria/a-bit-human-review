@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- A re-review reads each posted finding's own thread on the PR, with its replies, and your side chat about it, and
+  checks what the author answered against the code. A finding the author called fixed that still applies shows
+  **Author says fixed · still applies** with what is still missing, one whose fix holds shows **Author's fix
+  confirmed**, and one put off shows **Author: later**. The thread shows under the finding ("On the PR · N replies"),
+  the job's message counts the claims that do not hold, and the hand-off to the review session names them.
+- Posting a review keeps, in `out/<page>/posted.json`, which finding each comment came from. A review posted before
+  this release is read from `drafts.json` while it still holds it.
+
 ## [0.4.2] - 2026-11-05
 
 ### Fixed
