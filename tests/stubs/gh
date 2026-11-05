@@ -2,7 +2,9 @@
 """Stub `gh` for the tests: canned answers for the calls the tool makes, and never reaches GitHub.
 
   gh api user [--jq .login]                         the login (STUB_GH_LOGIN, default stub-reviewer)
-  gh pr view N --json ... [--repo o/r]              PR 4242 of acme/billing: three commits and one review by the login
+  gh pr view N --json ... [--repo o/r]              PR 4242 of acme/billing: three commits and one review by the login;
+                                                    its head branch is STUB_GH_HEAD_REF (default feature/rounding), and
+                                                    it exits 1 with STUB_GH_FAIL=1
   gh api repos/O/R/pulls/N/reviews --method POST    a posted review's id and URL
   gh api repos/O/R/pulls/N/reviews                  an empty list
   gh auth status                                    the login (exit 1 with STUB_GH_AUTH=0: not logged in)
@@ -16,7 +18,8 @@ args = sys.argv[1:]
 login = os.environ.get('STUB_GH_LOGIN', 'stub-reviewer')
 A, B, C = 'a1' * 20, 'b2' * 20, 'c3' * 20
 PR_VIEW = {
-    'headRefOid': C, 'state': 'OPEN', 'url': 'https://github.com/acme/billing/pull/4242',
+    'headRefOid': C, 'headRefName': os.environ.get('STUB_GH_HEAD_REF', 'feature/rounding'), 'isCrossRepository': False,
+    'state': 'OPEN', 'url': 'https://github.com/acme/billing/pull/4242',
     'commits': [
         {'oid': A, 'messageHeadline': 'Add rounding', 'authors': [{'login': 'dev-one'}], 'committedDate': '2026-10-18T10:00:00Z'},
         {'oid': B, 'messageHeadline': 'Fix tests', 'authors': [{'login': 'dev-one'}], 'committedDate': '2026-10-19T09:00:00Z'},
@@ -29,6 +32,9 @@ PR_VIEW = {
 if args[:2] == ['api', 'user']:
     print(login if '--jq' in args else json.dumps({'login': login}))
 elif args[:2] == ['pr', 'view']:
+    if os.environ.get('STUB_GH_FAIL') == '1':
+        sys.stderr.write('GraphQL: Could not resolve to a PullRequest\n')
+        sys.exit(1)
     print(json.dumps(PR_VIEW))
 elif args[:1] == ['api'] and len(args) > 1 and args[1].startswith('repos/') and args[1].endswith('/reviews'):
     if 'POST' in args:

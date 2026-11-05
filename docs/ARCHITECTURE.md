@@ -255,7 +255,7 @@ Every path is in the data folder: `FINDING_VIEWER_DATA`, else `CLAUDE_PLUGIN_DAT
 | `inject_state.json` | Page versions each session has seen | 50 sessions |
 | `settings.json` | Chat model, context mode and the single-key shortcuts switch | |
 | `config.json` | Settings; optional, written by you (see README) | yours |
-| `worktrees/<sha12>` | Detached checkouts of reviewed commits, registered in the reviewed repo | newest 3 |
+| `worktrees/<sha12>` | Checkouts of reviewed commits, registered in the reviewed repo: on the PR's head branch for a PR page when that is safe, else detached | newest 3, except those with uncommitted changes |
 | `clones/<owner>/<repo>` | Clones of reviewed repos not found on this machine | kept; delete freely |
 | `viewer.log` | Server starts, hook / render / chat / job errors, workers' output | |
 | `.migrate.lock` | Empty lock held while an old checkout's data moves into the data folder, or while flat pages get their folders | |

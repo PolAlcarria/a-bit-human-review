@@ -3,7 +3,8 @@
 Each finding gets its own thread. The first message carries the finding, its code and the reviewer's triage; later
 messages resume the same Claude session. Threads live in ``out/<page>/chat.json``. Each message is answered by a
 detached worker process (``jobs.spawn``), so a server restart does not lose the reply. When the review is of a commit
-rather than the working tree, Claude reads a detached worktree of that commit so its tools see the reviewed code.
+rather than the working tree, Claude reads a worktree of that commit (``store.review_checkout``) so its tools see the
+reviewed code.
 
 Settings (``settings.json``, edited from the page): the model, the context for new threads, either the finding
 alone or a fork of the Claude Code session that wrote the review (``--resume <id> --fork-session``), and whether the

@@ -2,7 +2,7 @@
 
 The freshness check says when the PR moved past the reviewed commit; this reviews those commits. A fork of the review
 session (``claude -p --resume <review session> --fork-session``, as Draft comments does) inherits the whole review,
-reads the new head in a detached worktree, reviews what the new commits changed and re-checks every finding. It answers
+reads the new head in a worktree of it, reviews what the new commits changed and re-checks every finding. It answers
 through ``--json-schema``: per finding, still applies, changed, fixed, dismissed or new. The page is then built again at the new
 head under the same name (``render.build_page``), and the triage carries over by finding id: a comment line the
 reviewer picked moves through the diff, or is reset when that line itself changed.

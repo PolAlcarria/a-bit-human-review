@@ -357,9 +357,25 @@ One thread per finding, stored in `out/<page>/chat.json`; each thread keeps its 
   watchdog. The thread's Claude session id is recorded at the `init` event, so the Running panel shows it while the
   reply is written. The system prompt tells it to lead with the answer and to put drafted PR comments in a fenced
   `comment` block, which the page offers as "use as note".
-- **Reviewed code**: when the page shows a commit, the chat runs inside a detached git worktree of that commit under
+- **Reviewed code**: when the page shows a commit, the chat runs inside a git worktree of that commit under
   `worktrees/<sha12>` (the 3 most recent are kept), so its tools read exactly the reviewed code. Working-tree reviews
-  run in the repo itself.
+  run in the repo itself. On a PR page the worktree is on the PR's head branch, so `git worktree list` shows its name
+  and you can commit and push from that folder. The page saves the branch name at render (`head_branch`,
+  `cross_repo`); pages rendered before 0.5.1 look it up once with `gh pr view`. `store.review_checkout()` first runs
+  `git fetch origin <branch>` (a failure is fine: a merged PR's branch is often deleted), then:
+  - the branch does not exist locally: it is created at the reviewed commit, tracking `origin/<branch>` when that exists;
+  - it is at the reviewed commit: checked out as it is;
+  - it is behind the reviewed commit: fast-forwarded to it (never moved backwards or across diverged history);
+  - an older worktree of this tool holds it and has no uncommitted changes: that worktree is switched to a detached
+    HEAD at the same commit, so its files do not change, and the new one takes the branch.
+
+  Anything else stays detached, as for a commit page without a PR, and `viewer.log` gets one line saying why: the
+  PR is cross-repository, gh could not name the branch, the branch is checked out in your own checkout (or in an
+  older worktree with uncommitted changes), the branch has commits the reviewed commit lacks, or git refused the
+  checkout (a local `feat` blocks `feat/x`). Pruning never removes a worktree with uncommitted changes (ignored files do
+  not count), nor one whose detached HEAD has commits no branch, tag or remote ref holds; it logs that it kept it. Each
+  worktree is removed through its own repository, since `worktrees/` holds those of every reviewed repo. The local
+  branches stay: their commits are safe.
 - **Context mode** (⚙ panel, `settings.json`): `finding` starts a fresh session that knows only the finding; `fork` runs
   `--resume <review-session> --fork-session`, inheriting the whole review conversation (about 157k tokens for a real
   review). If the review transcript is gone, it falls back to `finding` and says so. The same panel's `shortcuts`
@@ -486,7 +502,7 @@ new head (decisions E1–E4 of 2026-10-19).
   are not confirmed for discarding (409 with `drafts: true`). The server hands the worker the triage as the hand-off
   hook writes it (`summarize()`), the new commits and the freshness `affected` map.
 - **The fork**: `claude -p --resume <review session> --fork-session`, read-only tools (`chat.READ_ONLY_TOOLS`), hooks
-  off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a detached worktree of the new head
+  off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
   setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
   anchors, body and what the new commits touched, the PR's comments (`pr_comments()`: every review thread with its

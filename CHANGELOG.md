@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- The worktree of a PR review (side chat, re-review) is on the PR's head branch, tracking `origin/<branch>`, instead
+  of a detached HEAD, so Orca and `git worktree list` show the branch and you can commit and push from it. It still
+  holds exactly the reviewed commit. The branch is created, or fast-forwarded, only when no commit is lost; when it is
+  checked out elsewhere, has commits the review lacks, the PR is cross-repository, or git refuses it, the worktree
+  stays detached and `viewer.log` says why. This creates local branches in the reviewed repo; pruning a worktree
+  leaves its branch.
+- Pruning old worktrees never removes one with uncommitted changes, nor one with commits on a detached HEAD that no
+  ref holds. A worktree of another reviewed repo is removed through that repo, so its branch is free again there.
+
 ## [0.5.0] - 2026-11-05
 
 ### Added

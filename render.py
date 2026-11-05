@@ -101,10 +101,12 @@ def commit_exists(root: Path, sha: str) -> bool:
     return git(root, 'cat-file', '-e', f'{sha}^{{commit}}') is not None
 
 
-def resolve_pr(root: Path, pr: int, notes: list[str], slug: str | None = None) -> tuple[str | None, str | None, str | None]:
-    """Return (head sha, base ref, author login) for a PR, fetching the head commit if this clone lacks it."""
+def resolve_pr(root: Path, pr: int, notes: list[str], slug: str | None = None,
+               head: dict | None = None) -> tuple[str | None, str | None, str | None]:
+    """Return (head sha, base ref, author login) for a PR, fetching the head commit if this clone lacks it. ``head``
+    gets the PR's head branch name and whether it comes from another repository (``head_branch``, ``cross_repo``)."""
     try:
-        r = subprocess.run(['gh', 'pr', 'view', str(pr), '--json', 'headRefOid,baseRefName,author',
+        r = subprocess.run(['gh', 'pr', 'view', str(pr), '--json', 'headRefOid,headRefName,isCrossRepository,baseRefName,author',
                             *(['--repo', slug] if slug else [])],
                            cwd=root, capture_output=True, text=True, timeout=20)
         info = json.loads(r.stdout) if r.returncode == 0 else None
@@ -114,6 +116,8 @@ def resolve_pr(root: Path, pr: int, notes: list[str], slug: str | None = None) -
         notes.append(f'Could not look up PR #{pr} with gh; showing the working tree.')
         return None, None, None
     sha, author = info['headRefOid'], (info.get('author') or {}).get('login')
+    if head is not None:
+        head.update(head_branch=info.get('headRefName'), cross_repo=bool(info.get('isCrossRepository')))
     if not commit_exists(root, sha):
         git(root, 'fetch', '--quiet', '--no-tags', 'origin', f'pull/{pr}/head', timeout=90)
     if not commit_exists(root, sha):
@@ -284,7 +288,7 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
     slug = spec.get('repo')
     root = locate_repo(spec['cwd'], slug, notes)
     is_repo = repo_root(root) is not None
-    ref, base, pr_head, pr_author = None, None, None, None
+    ref, base, pr_head, pr_author, pr_branch = None, None, None, None, {}
     if spec.get('reviewed_sha') and not spec.get('pr'):
         # A saved report pins a commit but names no PR: review it as the PR that holds that commit.
         spec['pr'] = pr_for_commit(root, spec['reviewed_sha'], slug or (github_base(root) or '').removeprefix('https://github.com/'))
@@ -302,7 +306,8 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
                          f"session's branch" + (f", PR #{spec['pr']}." if spec['pr'] else ', which has no PR.'))
     if spec.get('pr'):
         # Also fetches pull/<n>/head, which brings in the PR's older commits when a reviewed commit is pinned.
-        pr_head, base, pr_author = resolve_pr(root, spec['pr'], [] if spec.get('reviewed_sha') else notes, slug)
+        pr_head, base, pr_author = resolve_pr(root, spec['pr'], [] if spec.get('reviewed_sha') else notes, slug,
+                                               pr_branch)
     if spec.get('reviewed_sha'):
         if commit_exists(root, spec['reviewed_sha']):
             ref = (git(root, 'rev-parse', f"{spec['reviewed_sha']}^{{commit}}") or spec['reviewed_sha']).strip()
@@ -380,6 +385,9 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
     data = {
         'page': out.parent.name, 'session_id': spec.get('session_id'), 'pr': spec.get('pr'), 'pr_author': pr_author, 'ref': ref,
         'review_session': spec.get('review_session') or spec.get('session_id'),
+        # The PR's head branch (head_branch, cross_repo), which a worktree of the page checks out (store.review_checkout).
+        # Left out when gh failed, so the checkout looks it up again.
+        **pr_branch,
         'title': spec['title'], 'subtitle': spec.get('subtitle', ''), 'repo_root': str(root),
         'repo_name': root.name, 'ref_label': ref_label, 'merge_base': merge_base[:8],
         'base': f"PR #{spec['pr']} diff" if patch is not None else base,
