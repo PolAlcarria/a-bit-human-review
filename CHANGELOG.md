@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
 ### Added
 - A re-review reads each posted finding's own thread on the PR, with its replies, and your side chat about it, and
   checks what the author answered against the code. A finding the author called fixed that still applies shows
