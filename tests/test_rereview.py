@@ -398,3 +398,22 @@ class ContextTest(unittest.TestCase):
         self.assertIn('the way you reviewed the PR', fork)
         self.assertTrue(fork.startswith('PR #4242 has'))
 
+
+class UsageTest(unittest.TestCase):
+    """What a re-review read and cost, kept with the re-review and said in its message."""
+    RESULT = {'total_cost_usd': 1.371, 'usage': {'input_tokens': 2000, 'cache_creation_input_tokens': 10000,
+                                                 'cache_read_input_tokens': 400000, 'output_tokens': 3000}}
+
+    def test_usage_counts_every_token_read(self):
+        self.assertEqual(rereview.usage_of(self.RESULT, 'fork'),
+                         {'context': 'fork', 'tokens_read': 412000, 'cached': 400000, 'output_tokens': 3000,
+                          'cost_usd': 1.371})
+
+    def test_a_fork_says_its_cost_is_the_forks_total(self):
+        self.assertEqual(rereview.spent(rereview.usage_of(self.RESULT, 'fork')),
+                         "412k tokens read, $1.37 (the fork's total)")
+        self.assertEqual(rereview.spent(rereview.usage_of(self.RESULT, 'fresh')), '412k tokens read, $1.37')
+
+    def test_nothing_counted_says_nothing(self):
+        self.assertEqual(rereview.spent(rereview.usage_of(None, 'fork')), '')
+

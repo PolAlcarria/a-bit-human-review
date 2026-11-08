@@ -137,7 +137,8 @@ an older file can lack some of them.
   `changed`, `truncated`), and `rereviewed` after a re-review. A finding: `id`, `severity`, `title`, `body`,
   `recurring`, `meta`, `locations` (`raw`, `path`, `start`, `end`, `ambiguous`), and `rereview` (`status`, `at`, `why`,
   `author_said`, `thread`: `who`, `at`, `body`, `url`) after a re-review. A `rereviewed` entry: `from`, `to`, `at`,
-  `commits`, `rewritten`, `counts`, `discarded_drafts`.
+  `commits`, `rewritten`, `counts`, `discarded_drafts`, `usage` (`context`, `tokens_read`, `cached`, `output_tokens`,
+  `cost_usd`).
 - **`decisions.json`** (`PUT /api/decisions/<page>`, `triage.py`): `page`, `title`, `subtitle`, `session_id`,
   `pr`, `repo_root`, `mode` (the reviewer's choice, `post` or `fix`; left out, the page's built mode holds), `updated`
   (the tab's clock), `rereviews` (how many re-reviews the tab saw), `saved_at` (set by the

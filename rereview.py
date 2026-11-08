@@ -898,6 +898,25 @@ def limit_args() -> list[str]:
     return args
 
 
+def usage_of(result: dict | None, where: str) -> dict:
+    """What the run read and wrote, in tokens, and what claude says it cost. A fork's total_cost_usd can include the
+    review session's own spend (chat.py says so for a forked chat), which one result cannot tell apart; the tokens this
+    run read are its own."""
+    usage = (result or {}).get('usage') or {}
+    read = sum(usage.get(k) or 0 for k in ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'))
+    return {'context': where, 'tokens_read': read, 'cached': usage.get('cache_read_input_tokens') or 0,
+            'output_tokens': usage.get('output_tokens') or 0, 'cost_usd': (result or {}).get('total_cost_usd')}
+
+
+def spent(usage: dict) -> str:
+    """'412k tokens read, $1.37 (the fork's total)', or '' when nothing was counted."""
+    read, cost = usage.get('tokens_read') or 0, usage.get('cost_usd')
+    parts = [f'{read / 1000:.0f}k tokens read'] if read else []
+    if isinstance(cost, (int, float)):
+        parts.append(f'${cost:.2f}' + (" (the fork's total)" if usage.get('context') == 'fork' else ''))
+    return ', '.join(parts)
+
+
 def limit_error(result: dict | None, error: str | None) -> str | None:
     """A fork's error, said in the reviewer's words when the run ended at one of the limits."""
     subtype = (result or {}).get('subtype')
@@ -1023,7 +1042,7 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
             findings, counts = new_findings(data, answer, changed, head, threads)
             # Drafts cannot change while the page is locked, so whether they go is known now.
             entry = {'from': ref, 'to': head, 'at': jobstate.now(), 'commits': st.get('commits'),
-                     'rewritten': bool(st.get('rewritten')), 'counts': counts,
+                     'rewritten': bool(st.get('rewritten')), 'counts': counts, 'usage': usage_of(result, where),
                      'discarded_drafts': bool(st.get('discard_drafts')) and unposted(page)}
             # The same page, name and session; the code, files, diff markers and links are read again at the new head.
             built = build_page({
@@ -1050,7 +1069,8 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
     _out, new = built
     claimed = sum(1 for f in findings if (f.get('rereview') or {}).get('at') == head and claimed_but_open(f['rereview']))
     message = f'Reviewed {head[:8]}: {said(counts)}' + (
-        f"; {claimed} the author called fixed still appl{'ies' if claimed == 1 else 'y'}." if claimed else '.')
+        f"; {claimed} the author called fixed still appl{'ies' if claimed == 1 else 'y'}" if claimed else '') + (
+        f' ({cost})' if (cost := spent(entry['usage'])) else '') + '.'
     # Under the lock every write to the page takes: stage every new file, record the steps that put them in place
     # (``committing``), take the steps, mark the job done. A worker that dies before the record leaves the page as it
     # was; one that dies after it is finished by the next read (``_fail_stalled``), as the staged files are complete.
@@ -1073,8 +1093,4 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
         _write(page, cur)
         _commit(page, cur)
         _write(page, cur)
-    usage = result.get('usage') or {}
-    read = sum(usage.get(k) or 0 for k in ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'))
-    # A fork's total_cost_usd can include the review session's own spend (chat.py says so for a forked chat), which
-    # one result cannot tell apart; the tokens this run read are its own.
-    log(f"{page}: {message} (${result.get('total_cost_usd') or 0:.2f}, the fork's total; {read // 1000}k tokens read)")
+    log(f'{page}: {message}')

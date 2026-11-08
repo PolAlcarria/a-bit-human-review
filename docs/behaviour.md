@@ -493,7 +493,8 @@ again, Copy triage and Sessions stay. The lock comes from `GET /api/activity` (p
 tab that has not noticed it yet has its write refused (423) and shows the server's reason, then locks too. The chat's
 text box stays editable, so a question can be typed meanwhile. Starting moves focus to the new banner's Stop (the Review
 button leaves). When the job succeeds, every tab of the page reloads itself (a tab in the background, once it is shown
-again) and says once what changed: "Reviewed f48a8e88: 1 fixed, 1 still applies, 2 new."; session storage carries across
+again) and says once what changed: "Reviewed f48a8e88: 1 fixed, 1 still applies, 2 new (412k tokens read, $1.37 (the
+fork's total))." (the cost of a fork can include the review session's own spend); session storage carries across
 the reload the server's words, an unsent chat message, the open finding (also in the hash), where focus was (the chat
 box, or the banner, whose note then takes it) and whether a save was refused meanwhile, which the rebuilt page cannot
 take (the note says to make that change again). A failure or a Stop unlocks the page as it was, says why, and sends a
@@ -554,7 +555,7 @@ new head (decisions E1–E4 of 2026-10-19).
   `render.build_page()` with `reviewed_sha` = the new head and the page's own title, PR, repo, folder, session ids and
   name, so files, hunks, diff markers, PR author and blob links are all read again; a finding without new anchors keeps
   the old ones that map cleanly. The page data gains `rereviewed` (`from`, `to`, `at`, `commits`, `rewritten`, `counts`,
-  `discarded_drafts`, appended) and each finding its `rereview` (`status`, `at`, `why`; `author_said` unless `none`;
+  `discarded_drafts`, `usage`: the tokens read, cached and written and claude's cost, appended) and each finding its `rereview` (`status`, `at`, `why`; `author_said` unless `none`;
   `thread`, the finding's thread on the PR as read, also for a finding fixed or dismissed before). `why` is kept for
   `fixed` and `dismissed`, and for an open finding the author called fixed. `carry_triage()` keeps each decision, note
   and mode by id; a saved anchor that differs from the old default line was picked by the reviewer and moves through the
