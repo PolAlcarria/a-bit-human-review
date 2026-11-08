@@ -82,6 +82,33 @@ def run_hook(path, session):
     return (json.loads(text_out)['systemMessage'] if text_out else None), launch
 
 
+class TriggerTest(unittest.TestCase):
+    """The trigger setting: mention opens on the viewer's name, explicit only on /findings in the prompt, off never."""
+    TURN = [user('Review my branch and open it in the finding viewer'), assistant(REPORT), tool_result('toolu_rf1', 'ok'),
+            assistant(text('Two findings, reported above.'))]
+
+    def test_mention_opens_on_the_name(self):
+        _, launch = run_hook(write_jsonl('trig_a.jsonl', self.TURN), 'sess-trig-a')
+        self.assertEqual(launch.call_count, 1)
+
+    def test_explicit_ignores_the_name(self):
+        with support.env(FINDING_VIEWER_TRIGGER='explicit'):
+            message, launch = run_hook(write_jsonl('trig_b.jsonl', self.TURN), 'sess-trig-b')
+        self.assertEqual((message, launch.call_count), (None, 0))
+
+    def test_explicit_opens_on_the_command_in_the_prompt(self):
+        turn = [user('Review my branch, then /findings')] + self.TURN[1:]
+        with support.env(FINDING_VIEWER_TRIGGER='explicit'):
+            _, launch = run_hook(write_jsonl('trig_c.jsonl', turn), 'sess-trig-c')
+        self.assertEqual(launch.call_count, 1)
+
+    def test_off_never_opens(self):
+        turn = [user('Review my branch, then /findings')] + self.TURN[1:]
+        with support.env(FINDING_VIEWER_TRIGGER='off'):
+            message, launch = run_hook(write_jsonl('trig_d.jsonl', turn), 'sess-trig-d')
+        self.assertEqual((message, launch.call_count), (None, 0))
+
+
 class BackgroundReviewHookTest(unittest.TestCase):
     def test_launch_then_notification_opens_one_page_with_the_findings(self):
         message, launch = run_hook(write_jsonl('bg_a.jsonl', LAUNCH + NOTIFIED), 'sess-bg-a')

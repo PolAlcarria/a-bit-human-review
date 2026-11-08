@@ -351,6 +351,12 @@ class NamesViewerTest(unittest.TestCase):
     def test_script_name_does_not_count(self):
         self.assertIs(names_viewer(turn('python3 finding_viewer.py')), False)
 
+    def test_explicit_trigger_counts_only_the_command_written_in_the_prompt(self):
+        self.assertIs(names_viewer(turn('review PR 12, then /findings'), 'explicit'), True)
+        self.assertIs(names_viewer(turn('review PR 12, then /a-bit-human-review:findings'), 'explicit'), True)
+        self.assertIs(names_viewer(turn('open it in the finding viewer'), 'explicit'), False)
+        self.assertIs(names_viewer(turn('<command-name>/findings</command-name>'), 'explicit'), False)
+
 
 class RanFindingsTest(unittest.TestCase):
     def test_findings_skill_counts(self):

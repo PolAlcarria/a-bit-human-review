@@ -211,6 +211,7 @@ prints the file's path and the effective values.
 | `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR, and for `/findings diff` (else `origin/HEAD`, develop, main, master) |
 | `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the fork transcripts this tool creates |
 | `auto_open` | `true` | `FINDING_VIEWER_AUTO_OPEN` (`0` = off) | Open the browser when the Stop hook has a review's page ready. Off, the hook builds the page and tells where it is; `/findings` and the list page still open pages |
+| `trigger` | `mention` | `FINDING_VIEWER_TRIGGER` | When the Stop hook opens a page: `mention`, when the prompt names the viewer ("finding viewer", `/findings`); `explicit`, only when the prompt has `/findings` (or `/a-bit-human-review:findings`) written in it; `off`, never, and only `/findings` opens pages |
 
 ## More
 

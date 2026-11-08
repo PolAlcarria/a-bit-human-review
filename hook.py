@@ -33,6 +33,8 @@ ASKED_REVIEW_RE = re.compile(r'\breview', re.I)
 # (~/.claude/commands/findings.md, ~/Repos/a-bit-human-review/…) and not finding_viewer.py.
 MENTION_RE = re.compile(r'(?<![\w/.-])/(?:a-bit-human-review:)?findings\b|\bfindings?[\s-]viewer\b'
                         r'|(?<![\w/.-])a-bit-human-review\b', re.I)
+# The same with trigger explicit: only the command itself, written in the prompt ("review PR 12, then /findings").
+EXPLICIT_RE = re.compile(r'(?<![\w/.-])/(?:a-bit-human-review:)?findings\b')
 # What Claude Code stores around a slash command and its shell output: the command's name and output never count as
 # naming the viewer (the /findings command opens its own page); its arguments do.
 COMMAND_TAG_RE = re.compile(r'<(command-name|command-message|local-command-[\w-]+)>.*?</\1>', re.S)
@@ -215,9 +217,11 @@ def review_intent(turn: dict, text: str, named: bool, turns: list[dict] | None =
     return named or asks_review(turn, turns)
 
 
-def names_viewer(turn: dict) -> bool:
-    """The turn's prompt asks for the viewer by name. A handed-back triage mentions it too, but is not a request."""
-    return not turn.get('handoff') and bool(MENTION_RE.search(COMMAND_TAG_RE.sub(' ', turn['prompt'] or '')))
+def names_viewer(turn: dict, trigger: str = 'mention') -> bool:
+    """The turn's prompt asks for the viewer: by name (trigger mention), or with /findings written in it (explicit). A
+    handed-back triage mentions it too, but is not a request."""
+    pattern = EXPLICIT_RE if trigger == 'explicit' else MENTION_RE
+    return not turn.get('handoff') and bool(pattern.search(COMMAND_TAG_RE.sub(' ', turn['prompt'] or '')))
 
 
 def ran_findings(turn: dict) -> bool:
@@ -384,9 +388,12 @@ def already_shown(session: str, fp: str) -> bool:
 
 
 def cmd_hook() -> int:
-    """Stop hook: build the page for the turn that just ended, only when its prompt named the viewer, and open it unless
-    auto_open is off."""
+    """Stop hook: build the page for the turn that just ended, only when its prompt asked for the viewer (the trigger
+    setting says how; off, never), and open it unless auto_open is off."""
     if os.environ.get('FINDING_VIEWER_CHILD'):
+        return 0
+    trigger = config.get('trigger')
+    if trigger == 'off':
         return 0
     try:
         event = json.loads(sys.stdin.read() or '{}')
@@ -403,7 +410,7 @@ def cmd_hook() -> int:
         return 0
     turns = read_turns(transcript)
     # A turn that ran /findings has its page already; a second one would read the review again, at a second cost.
-    if not turns or not names_viewer(turns[-1]) or ran_findings(turns[-1]):
+    if not turns or not names_viewer(turns[-1], trigger) or ran_findings(turns[-1]):
         return 0
     for _ in range(3):
         if turns[-1]['texts'] or event.get('last_assistant_message'):
