@@ -698,6 +698,19 @@ async function loadActivity() {
 
 /* ---------- Review the new commits: a fork of the review session re-checks the findings at the new head (rereview.py) ---------- */
 
+// What starting a re-review costs, before you start it (rereview.view): a fork reads the review session's whole
+// context again; a fresh session reads only the findings, the new commits and the PR's comments.
+function rrCost(R) {
+  if (R.context === 'fresh') return 'New session: reads only the findings and the new commits.';
+  return R.context_tokens ? `Reads the review session again: about ${Math.round(R.context_tokens / 1000)}k tokens of context.` : '';
+}
+function rrStartTitle(R) {
+  return (R.context === 'fresh'
+    ? 'A new Claude session reviews the new commits and re-checks each finding at the new head'
+    : 'A fork of the review session reviews the new commits and re-checks each finding at the new head')
+    + '; this page then shows the new head with your triage carried over. rereview.context in config.json picks fork or fresh.';
+}
+
 // ACT.rereview says whether the page can review new commits (and why not) and how the last re-review went. While one
 // runs the page is locked: the server refuses every write (423), and each control that writes says why and does
 // nothing, keeping focus (aria-disabled, not disabled). Reading, filters, Check again and Sessions stay.
@@ -1307,7 +1320,7 @@ function renderFreshness() {
   const review = !SERVED || !R.can || locked() ? ''
     : rrConfirm ? `<span class="confirm"><span>This discards the unposted drafts: they refer to the old lines. They go only once the review succeeds.</span>
         <button class="go" id="rr-go">Discard drafts and review</button><button id="rr-cancel">Cancel</button></span>`
-    : `<button class="go" id="rr-start" title="A fork of the review session reviews the new commits and re-checks each finding at the new head; this page then shows the new head with your triage carried over. It costs about as much as drafting comments.">${esc(label)}</button>`;
+    : `<button class="go" id="rr-start" title="${esc(rrStartTitle(R))}">${esc(label)}</button><span class="rr-cost">${esc(rrCost(R))}</span>`;
   showFresh(el, `${first}<span${R.can === false && R.why ? ` title="${esc(R.why)}"` : ''}>${lead}${state}</span><span>${impact}</span>
     ${F.compare_url ? `<a href="${esc(F.compare_url)}" target="_blank">See what changed ↗</a>` : ''}
     <button id="fresh-again" aria-label="Check again"><span aria-hidden="true">Check again</span></button>${review}

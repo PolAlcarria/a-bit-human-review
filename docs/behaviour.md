@@ -481,7 +481,9 @@ of a first chat message that was stopped or whose worker died, or the relay sess
 ## Review the new commits
 
 When the freshness check says `behind` (or `rewritten`), the banner offers "Review the N new commits" ("Review the new
-head"), unless the page cannot fork its review session (the transcript is gone) or shows the working tree: then there is
+head"), with what it will read beside it: for a fork, "Reads the review session again: about 120k tokens of context"
+(`sessions.context_tokens()`: the input of the review session's last answer, read from its transcript and kept until
+the file changes), for a fresh session "New session: reads only the findings and the new commits", unless the page cannot fork its review session (the transcript is gone) or shows the working tree: then there is
 no button and the reason is the banner text's title. Starting saves any pending triage first. With unposted drafts
 (ready, or a failed post), the banner first asks "This discards the unposted drafts…" with Discard drafts and review /
 Cancel (Esc cancels); they go only if the re-review succeeds. While it runs, its own banner says "Reviewing the N new

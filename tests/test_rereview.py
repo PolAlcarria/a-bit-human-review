@@ -3,10 +3,12 @@ carried to a new head (carry_triage, which uses default_anchor), and the PR comm
 (format_comments)."""
 import support  # noqa: F401  first: points the tool at a scratch environment before it is imported
 import copy
+import json
 import unittest
 
 import freshness
 import rereview
+import sessions
 from rereview import carry_triage, default_anchor, format_comments, new_findings, next_id, parse_answer
 
 DATA = {'findings': [{'id': 'C1', 'severity': 'critical'}, {'id': 'W1', 'severity': 'warning'},
@@ -416,4 +418,34 @@ class UsageTest(unittest.TestCase):
 
     def test_nothing_counted_says_nothing(self):
         self.assertEqual(rereview.spent(rereview.usage_of(None, 'fork')), '')
+
+
+class ContextSizeTest(unittest.TestCase):
+    """Before a fork starts, the page is told how much of the review session's context it reads again."""
+
+    def answer(self, tokens, sidechain=False):
+        return {'type': 'assistant', 'isSidechain': sidechain, 'message': {'usage': {
+            'input_tokens': 10, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': tokens - 10}}}
+
+    def test_the_last_answers_context_counts_and_sidechains_do_not(self):
+        path = support.fake_session('sess-ctx-0001')
+        with path.open('a', encoding='utf-8') as fh:
+            for row in (self.answer(50000), self.answer(120000), self.answer(999999, sidechain=True)):
+                fh.write(json.dumps(row) + '\n')
+        self.assertEqual(sessions.context_tokens('sess-ctx-0001'), 120000)
+
+    def test_no_transcript_or_no_answer_is_none(self):
+        support.fake_session('sess-ctx-0002')
+        self.assertIsNone(sessions.context_tokens('sess-ctx-0002'))
+        self.assertIsNone(sessions.context_tokens('sess-ctx-gone'))
+
+    def test_view_gives_the_context_and_its_size(self):
+        path = support.fake_session('sess-ctx-0003')
+        with path.open('a', encoding='utf-8') as fh:
+            fh.write(json.dumps(self.answer(80000)) + '\n')
+        data = support.sample_page('20261108-100041-ctx', session_id='sess-ctx-0003', ref='a' * 40)
+        self.assertEqual({k: rereview.view(data, None)[k] for k in ('can', 'context', 'context_tokens')},
+                         {'can': True, 'context': 'fork', 'context_tokens': 80000})
+        with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
+            self.assertNotIn('context_tokens', rereview.view(data, None))
 

@@ -11,6 +11,8 @@
   on a long review and works after the review's transcript is gone.
 - A re-review says what it cost: its message gives the tokens read and claude's cost ("Reviewed f48a8e88: 1 fixed,
   2 new (412k tokens read, $1.37 (the fork's total))."), and the page keeps them with the re-review (`usage`).
+- Before you start a re-review, the banner says what it will read: about how many tokens of the review session's
+  context a fork reads again, or that a fresh session reads only the findings and the new commits.
 - A re-review stops after 80 turns (`rereview.max_turns`), and can be given a spending limit
   (`rereview.max_budget_usd`, none by default). A run that hits one fails with which limit it was, and the page is
   unchanged. `0` turns either off.

@@ -319,8 +319,11 @@ def heads_up(data: dict) -> str | None:
 
 def view(data: dict, st: dict | None) -> dict:
     """The re-review as the page needs it: whether it can run (and why not), and the last one's state."""
-    why = unavailable(data)
-    out = {'can': not why, 'why': why}
+    why, where = unavailable(data), context()
+    out = {'can': not why, 'why': why, 'context': where}
+    if not why and where == 'fork' and (review := sessions.review_session(data)):
+        # What the fork reads again before it starts: the review session's context at its last answer.
+        out['context_tokens'] = sessions.context_tokens(review[0])
     if st:
         out.update({k: st.get(k) for k in ('status', 'started', 'ended', 'from', 'to', 'commits', 'rewritten', 'error',
                                            'stopped', 'stopping', 'result', 'discard_drafts')})
