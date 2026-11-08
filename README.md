@@ -23,7 +23,7 @@ FINDING_VIEWER_EXTRACT=0 python3 finding_viewer.py examples/review.md
 | | |
 |---|---|
 | [Code review of a PR](#code-review) | Triage each finding (post, fix, don't post) with the code beside it, then draft, edit and post the comments as one GitHub review |
-| [Code review of your own code](#your-own-code) | No PR: findings are Fix or Won't fix, and **Send fixes to session** hands them back to Claude |
+| [Code review of your own code](#your-own-code) | No PR, or your own PR: the page opens in fix mode, findings are Fix or Won't fix, and **Send fixes to session** hands them back to Claude. A PR page can switch between post and fix mode |
 | [Review the new commits](#when-the-pr-moves-on) | When the PR gets new commits, Claude re-reviews them and your triage carries over; findings declined on the PR stay dismissed, and an author's "fixed" is checked against the code |
 | [Diff review](#diff-review-read-what-claude-wrote) | `/findings diff`: every change of the branch as one diff, a tree of files with search, threads on lines, change requests sent to the session |
 | [Side chat](#the-side-chat) | Discuss any finding or selection with a read-only Claude that can read the repo, or with a fork of the session that wrote the code |
@@ -111,9 +111,12 @@ to fix** changes it, and your decisions move with it.
 
 The page checks the PR against the commit it reviewed: up to date, N new commits (and how many findings sit on changed
 code), force-pushed, merged or closed, and whether you already approved it. When the PR has new commits, **Review the N
-new commits** has a fork of the review session read them: each finding comes back fixed in the new commits, changed or
-unchanged, new findings are added, and your triage carries over to the new head. When the new commits change none of the findings' files,
-**Move the lines only (no Claude)** brings the page to the new head for free, without reviewing what they added. A finding someone on the PR declined
+new commits** has a fork of the review session read them (or, with `rereview.context` set to `fresh`, a new session
+that knows only the findings): each finding comes back fixed in the new commits, changed or unchanged, new findings are
+added, and your triage carries over to the new head. Beside the button, the page says how much context the run will
+read; when it ends, it says what it read and cost. When the new commits change none of the findings' files, **Move the
+lines only (no Claude)** brings the page to the new head for free, without reviewing what they added. A finding
+someone on the PR declined
 (the change will not be made) comes back **dismissed**, marked Don't post, tagged with who declined it and why, and is
 not raised again. Each finding you posted is re-checked with its own thread on the PR and your side chat about it: what
 the author answered is checked against the code, so "done" on a finding that still applies shows as **Author says fixed
@@ -186,8 +189,12 @@ point is in [examples/chat-buttons.json](examples/chat-buttons.json).
   never the Stop hook, starts it. A diff review needs no Claude to build.
 - **Draft comments, Review the new commits** and side chats in fork mode resume a fork of the review session, so each
   costs about one more turn of that session, whose whole context is read again (and, hours after the review, no
-  longer cached). `rereview.context` set to `fresh` runs the re-review in a new session instead. A side chat in its default mode starts a small session that knows only the
-  finding, and each later message resumes it.
+  longer cached). A side chat in its default mode starts a small session that knows only the finding, and each later
+  message resumes it.
+- **Review the new commits** quotes only what the fork does not already know, stops after 80 turns
+  (`rereview.max_turns`) and can be given a spending limit (`rereview.max_budget_usd`). `rereview.context` set to
+  `fresh` runs it in a new session instead of a fork, which costs far less on a long review. The page says the context
+  a fork will read before you start, and the tokens and cost when it ends. **Move the lines only** costs nothing.
 - **Transcripts it creates** under `~/.claude/projects` (the forks, and a side chat's first session when stopped) are
   deleted once done; `delete_forks` false keeps them.
 - **After posting**, the fork tells the review session what was posted (a `claude -p` that may only use
