@@ -41,7 +41,7 @@ COMMAND_TAG_RE = re.compile(r'<(command-name|command-message|local-command-[\w-]
 FINDINGS_SKILL_RE = re.compile(r'^(?:[\w.-]+:)?findings$')
 FINDINGS_BASH_RE = re.compile(
     r'\bpython3?\s+(?:\'[^\']*|"[^"]*|\S*)finding_viewer\.py'
-    r'(?![\'"]?\s+(?:hook|inject|serve|render|job|decisions|on|off|doctor|install|uninstall|migrate)\b)')
+    r'(?![\'"]?\s+(?:hook|inject|session|serve|render|job|decisions|on|off|doctor|install|uninstall|migrate)\b)')
 # A triage handed back from the review page: the hook's summary, a pasted "Copy triage", or the page telling the review
 # session what it posted.
 HANDOFF_RE = re.compile(r'Finding-viewer triage for "|Finding-viewer posted the review|^Triage of "', re.M)

@@ -12,6 +12,8 @@
                                        base branch), committed or not, to read line by line with a side chat.
   finding_viewer.py decisions          Print the latest Post / Don't post triage and notes.
   finding_viewer.py inject             UserPromptSubmit hook. Hands new triage to Claude.
+  finding_viewer.py session            SessionStart hook (plugin only). Says when a newer version is out, at most once
+                                       a day; the update_check setting turns it off (updates.py).
   finding_viewer.py serve              Run the localhost server that serves pages and stores triage.
   finding_viewer.py migrate            Move the runtime data from beside the code into the data directory, and give each
                                        review page its own folder (paths.py).
@@ -38,6 +40,7 @@ import render
 import sessions
 import setup_cmds
 import triage
+import updates
 
 
 log = paths.log()
@@ -143,7 +146,7 @@ def main(argv: list[str]) -> int:
             (not layout or (layout.startswith('gave') and '; could not move' not in layout)) else 1
     if cmd in ('doctor', 'install', 'uninstall'):
         return {'doctor': setup_cmds.doctor, 'install': setup_cmds.install, 'uninstall': setup_cmds.uninstall}[cmd]()
-    if cmd not in ('hook', 'inject') or not os.environ.get('FINDING_VIEWER_CHILD'):  # a child claude's hooks stay quiet
+    if cmd not in ('hook', 'inject', 'session') or not os.environ.get('FINDING_VIEWER_CHILD'):  # a child claude's hooks stay quiet
         paths.migrate_if_needed()
         if paths.migrate_layout() and cmd != 'serve':
             try:
@@ -177,6 +180,14 @@ def main(argv: list[str]) -> int:
             return handoff.cmd_inject()
         except Exception as exc:  # noqa: BLE001 — a crashing prompt hook must never block the user's message
             log(f'inject error: {exc!r}')
+            return 0
+    if cmd == 'session':
+        if os.environ.get('FINDING_VIEWER_CHILD'):  # a child claude's hooks stay quiet
+            return 0
+        try:
+            return updates.cmd_session_start()
+        except Exception as exc:  # noqa: BLE001 — a crashing SessionStart hook must never disturb the session
+            log(f'session error: {exc!r}')
             return 0
     if cmd == 'decisions':
         return handoff.cmd_decisions()

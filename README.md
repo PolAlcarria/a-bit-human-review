@@ -227,6 +227,7 @@ prints the file's path and the effective values.
 | `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the fork transcripts this tool creates |
 | `auto_open` | `true` | `FINDING_VIEWER_AUTO_OPEN` (`0` = off) | Open the browser when the Stop hook has a review's page ready. Off, the hook builds the page and tells where it is; `/findings` and the list page still open pages |
 | `trigger` | `explicit` | `FINDING_VIEWER_TRIGGER` | When the Stop hook opens a page: `explicit`, only when the prompt has `/findings` (or `/a-bit-human-review:findings`) written in it (a prompt that only names the viewer gets a line saying to run `/findings`); `mention`, also when the prompt names the viewer ("finding viewer"); `off`, never, and only `/findings` opens pages |
+| `update_check` | `true` | `FINDING_VIEWER_UPDATE_CHECK` (`0` = off) | The plugin's SessionStart hook compares its version with the one on GitHub's main branch, at most once a day, and shows a line when a newer one is out (update with `/plugin`). It never updates anything itself. Off, no request is made |
 
 ## More
 

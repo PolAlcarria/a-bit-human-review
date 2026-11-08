@@ -35,6 +35,7 @@ DEFAULTS: dict[str, Any] = {
     'delete_forks': True,
     'auto_open': True,
     'trigger': 'explicit',
+    'update_check': True,
 }
 ENV = {
     'port': 'FINDING_VIEWER_PORT',
@@ -53,6 +54,7 @@ ENV = {
     'delete_forks': 'FINDING_VIEWER_DELETE_FORKS',
     'auto_open': 'FINDING_VIEWER_AUTO_OPEN',
     'trigger': 'FINDING_VIEWER_TRIGGER',
+    'update_check': 'FINDING_VIEWER_UPDATE_CHECK',
 }
 # Whole-number keys and the values they take, both ends included. 0 turns means no limit.
 RANGES: dict[str, tuple[int, int]] = {
