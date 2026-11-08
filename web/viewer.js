@@ -308,7 +308,7 @@ function switchMode(to) {
   renderDetail();
   renderKeys();
   const word = m => m === 'fix' ? 'Fix' : 'Post';
-  announce(`Switched to ${to} mode` + (moved ? `: ${moved} ${word(from)} decision${moved === 1 ? '' : 's'} now ${moved === 1 ? 'is' : 'are'} ${word(to)}.` : '.'));
+  announce(`Switched to ${to} mode` + (moved ? `: ${moved} ${word(from)} decision${moved === 1 ? ' is' : 's are'} now ${word(to)}.` : '.'));
   document.getElementById('mode-switch')?.focus();
 }
 
