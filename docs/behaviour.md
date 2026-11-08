@@ -9,8 +9,8 @@ Runs as a Stop hook after every turn, but acts only on a turn whose prompt asks 
 says. With `off` the hook does nothing at all (only `/findings` opens pages). With `explicit` the prompt must have the
 command written in it (`EXPLICIT_RE`: `/findings` or `/a-bit-human-review:findings`, as in "review PR 12, then
 /findings"), not just the viewer's name. With `mention`, the default, the prompt **names the viewer** (`MENTION_RE`: "finding
-viewer", "findings viewer", "finding-viewer", "a-bit-human-review", or `/findings` or `/a-bit-human-review:findings`
-inside the text; not inside a path, and not the `/findings` command or its shell output, which `COMMAND_TAG_RE` strips
+viewer", "findings viewer", "finding-viewer", or `/findings` or `/a-bit-human-review:findings` inside the text; the
+project's name alone does not count, since a session working on this repository says it all the time; not inside a path, and not the `/findings` command or its shell output, which `COMMAND_TAG_RE` strips
 first; a slash command's arguments do count). A transcript that never names the viewer is not even parsed. `/findings`
 is the other way a page opens (`/a-bit-human-review:findings` when installed as a plugin); it runs the same detection on
 the latest review turn of the session. `/findings` with no argument opens the latest review in this session, else the

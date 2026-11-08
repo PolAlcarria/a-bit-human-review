@@ -7,6 +7,11 @@
   the viewer, `explicit` only when the prompt has `/findings` written in it, `off` never (only `/findings` opens
   pages). A value outside these three is ignored, and `doctor` says so.
 
+### Changed
+- The project's name alone ("a-bit-human-review") no longer counts as naming the viewer: a session working on this
+  repository opened pages, and paid Claude to read them, whenever a prompt mentioned it. "finding viewer" and
+  `/findings` (or `/a-bit-human-review:findings`) still count.
+
 ## [0.5.1] - 2026-11-05
 
 ### Changed

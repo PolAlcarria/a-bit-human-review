@@ -29,10 +29,9 @@ from severity import SEVERITY_WORDS
 
 ASKED_REVIEW_RE = re.compile(r'\breview', re.I)
 # A prompt that names the viewer, which is the only way the Stop hook opens a page: /findings, the plugin's
-# /a-bit-human-review:findings, "finding viewer", or the project's name. Not inside a path
-# (~/.claude/commands/findings.md, ~/Repos/a-bit-human-review/…) and not finding_viewer.py.
-MENTION_RE = re.compile(r'(?<![\w/.-])/(?:a-bit-human-review:)?findings\b|\bfindings?[\s-]viewer\b'
-                        r'|(?<![\w/.-])a-bit-human-review\b', re.I)
+# /a-bit-human-review:findings, or "finding viewer". Not inside a path (~/.claude/commands/findings.md) and not
+# finding_viewer.py. The project's name alone does not count: a session working on this repository says it all the time.
+MENTION_RE = re.compile(r'(?<![\w/.-])/(?:a-bit-human-review:)?findings\b|\bfindings?[\s-]viewer\b', re.I)
 # The same with trigger explicit: only the command itself, written in the prompt ("review PR 12, then /findings").
 EXPLICIT_RE = re.compile(r'(?<![\w/.-])/(?:a-bit-human-review:)?findings\b')
 # What Claude Code stores around a slash command and its shell output: the command's name and output never count as

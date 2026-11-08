@@ -342,8 +342,9 @@ class NamesViewerTest(unittest.TestCase):
     def test_handed_back_triage_is_not_a_request(self):
         self.assertIs(names_viewer(turn('open it in the finding viewer', handoff=True)), False)
 
-    def test_project_name_counts(self):
-        self.assertIs(names_viewer(turn('run a-bit-human-review on it')), True)
+    def test_project_name_alone_does_not_count(self):
+        self.assertIs(names_viewer(turn('run a-bit-human-review on it')), False)
+        self.assertIs(names_viewer(turn('fix the hook of a-bit-human-review')), False)
 
     def test_findings_dash_viewer_counts(self):
         self.assertIs(names_viewer(turn('open the findings-viewer')), True)
