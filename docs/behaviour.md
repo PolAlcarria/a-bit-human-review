@@ -336,14 +336,17 @@ new", gives ids and anchors at the new head, leaves the fixed findings out of "T
 "Fixed by the new commits, so not to post" line), and notes under a finding marked Post that it changed since the
 reviewer chose Post (`recheck`).
 
-The summary (`summarize()`) lists what to post with its anchor (anchors outside the diff are flagged "put it in the
-review body"), what to fix locally (an instruction to change the code and not post it), what not to post, what is
+The summary (`summarize()`) follows the page's mode (`store.review_mode()`). In post mode it lists what to post with its
+anchor (anchors outside the diff are flagged "put it in the review body"), what not to post, what is
 undecided, each note, the last chat reply per finding, the freshness warning, a note when the PR is already merged,
 closed or reviewed by you (`pr_note()`: approved means post as a COMMENT review and do not approve again), the paths to
 the full JSON, and an instruction to show the final comments and get a yes before posting. `/findings decisions` prints
 the same text on demand and marks it seen. Side-chat processes set `FINDING_VIEWER_CHILD=1`, which turns this hook off
-for them. On a local review (no PR) it says "N to fix, N won't fix, N undecided" and has no "to post" or drafting
-instruction.
+for them. In fix mode (no PR, or your own PR, unless you switched it) it says "N to fix, N won't fix, N undecided",
+lists what to fix locally (an instruction to change the code and not post it) and what not to fix, and has no "to post"
+or drafting instruction. A finding stored with the other mode's word (Post in fix mode, Fix in post mode) counts as
+undecided. Draft comments and Approve & post are refused in fix mode, and Send fixes to session in post mode (409, with
+the mode to switch to).
 
 After a post from the page ([Draft comments and posting](#draft-comments-and-posting)), the hook keeps handing over a
 triage that still has Fix findings (`mark_handed()` does not mark it seen while they wait), and the summary marks each

@@ -2,11 +2,13 @@
 the reviewer on the page."""
 import support  # noqa: F401  first: points the tool at a scratch environment before it is imported
 
+import json
 import unittest
 from unittest import mock
 
 import render
 import store
+import triage
 
 
 class BuiltModeTest(unittest.TestCase):
@@ -48,6 +50,34 @@ class EffectiveModeTest(unittest.TestCase):
     def test_an_old_pr_page_is_post_unless_a_finding_is_marked_fix(self):
         self.assertEqual(store.review_mode({'pr': 12}, {'findings': {'W1': {'status': 'post'}}}), 'post')
         self.assertEqual(store.review_mode({'pr': 12}, {'findings': {'W1': {'status': 'fix'}}}), 'fix')
+
+
+class RoutesFollowTheModeTest(unittest.TestCase):
+    """Draft comments and posting only in post mode; the page's mode is in /api/handoff."""
+
+    def page(self, name, mode, dec_mode=None):
+        support.write_page(name, support.sample_page(name, mode=mode))
+        dec = {'findings': {'C1': {'status': 'post', 'note': ''}}, **({'mode': dec_mode} if dec_mode else {})}
+        store.decisions_path(name).write_text(json.dumps(dec), encoding='utf-8')
+        return name
+
+    def test_drafting_in_fix_mode_is_refused(self):
+        code, body = triage.draft_review(self.page('20261108-100001-mode-draft', 'fix'))
+        self.assertEqual(code, 409)
+        self.assertIn('fix mode', body['error'])
+
+    def test_drafting_after_the_reviewer_switched_to_fix_is_refused(self):
+        code, _ = triage.draft_review(self.page('20261108-100002-mode-switched', 'post', 'fix'))
+        self.assertEqual(code, 409)
+
+    def test_posting_in_fix_mode_is_refused(self):
+        code, body = triage.post_drafts(self.page('20261108-100003-mode-post', 'fix'), {})
+        self.assertEqual(code, 409)
+        self.assertIn('fix mode', body['error'])
+
+    def test_handoff_says_the_mode_in_force(self):
+        with mock.patch('triage.freshness.viewer_login', return_value='me'):
+            self.assertEqual(triage.handoff(self.page('20261108-100004-mode-handoff', 'post', 'fix'))['mode'], 'fix')
 
 
 if __name__ == '__main__':

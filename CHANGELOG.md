@@ -10,6 +10,9 @@
   minute and $0.10–0.30). It says so instead, and `/findings` reads and opens it.
 
 ### Changed
+- The hand-off to the review session follows the page's mode: in post mode it has nothing to fix, in fix mode
+  nothing to post. A PR you opened used to mix both ("1 to post, 1 to fix locally, …"). Draft comments and posting
+  are refused in fix mode, Send fixes to session in post mode.
 - The project's name alone ("a-bit-human-review") no longer counts as naming the viewer: a session working on this
   repository opened pages, and paid Claude to read them, whenever a prompt mentioned it. "finding viewer" and
   `/findings` (or `/a-bit-human-review:findings`) still count.

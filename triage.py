@@ -487,6 +487,7 @@ def handoff(page: str) -> dict:
     session = {'id': owner, 'name': live.get('name'), 'status': live.get('status'),
                'cwd': (live.get('cwd') or '').replace(str(Path.home()), '~', 1) or None} if live else None
     return {'session': session, 'can_draft': draft.can_draft(data), 'own_code': own_code(data),
+            'mode': store.review_mode(data, _dec),
             'draft': draft.state(page), 'send': send_state(page), 'version': version}
 
 
@@ -496,6 +497,8 @@ def draft_review(page: str) -> tuple[int, dict]:
     if not data:
         return 404, {'error': 'unknown page'}
     dec, chat_state, _owner, version = page_state(page)
+    if store.review_mode(data, dec) != 'post':
+        return 409, {'error': 'This review is in fix mode, where nothing is posted. Switch it to post to draft comments.'}
     fixed = rereview.fixed(data)  # nothing to post for a finding the new commits fixed
     if not any(v.get('status') == 'post' and k not in fixed for k, v in (dec.get('findings') or {}).items()):
         return 400, {'error': 'Mark at least one finding Post first.'}
@@ -519,10 +522,12 @@ def start_rereview(page: str, payload: dict) -> tuple[int, dict]:
 
 
 def post_drafts(page: str, payload: dict) -> tuple[int, dict]:
-    """Approve & post: post the edited drafts (the worker then calls ``mark_handed``)."""
+    """Approve & post: post the edited drafts (the worker then calls ``mark_handed``). Only in post mode."""
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
+    if store.review_mode(data, page_state(page)[0]) != 'post':
+        return 409, {'error': 'This review is in fix mode, where nothing is posted. Switch it to post to post the drafts.'}
     return draft.post(page, data, payload)
 
 
@@ -532,8 +537,9 @@ def start_send_fixes(page: str) -> tuple[int, dict]:
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
-    if not own_code(data):
-        return 409, {'error': 'Send fixes is for a review of your own code: no PR, or a PR you opened.'}
+    if data.get('kind') != 'diff' and store.review_mode(data, page_state(page)[0]) != 'fix':
+        return 409, {'error': 'This review is in post mode, where findings become PR comments. Switch it to fix to send '
+                              'fixes to the session.'}
     return send_fixes(page, data)
 
 

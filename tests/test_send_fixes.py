@@ -253,13 +253,13 @@ class SendRouteTests(unittest.TestCase):
         self.assertEqual(self.post('20261020-140012-no-such-page', {'X-Finding-Viewer': '1'}),
                          (404, {'error': 'not found'}))
 
-    def test_a_pr_page_is_refused_as_not_the_reviewers_own_code(self):
+    def test_a_page_in_post_mode_is_refused(self):
         name = '20261020-140013-send-route-pr'
-        support.write_page(name)
+        support.write_page(name, support.sample_page(name, mode='post'))
         write_decisions(name, 'Route PR triage', {'C1': 'fix'})
         status, body = self.post(name, {'X-Finding-Viewer': '1'})
         self.assertEqual(status, 409)
-        self.assertIn('your own code', body['error'])
+        self.assertIn('post mode', body['error'])
 
 
 if __name__ == '__main__':
