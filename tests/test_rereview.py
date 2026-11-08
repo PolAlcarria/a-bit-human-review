@@ -188,6 +188,10 @@ class CarryTriageTest(unittest.TestCase):
         self.out = carry_triage(self.dec, old, new, changed, 'h2')
         self.f = self.out['findings']
 
+    def test_the_reviewers_page_mode_is_kept(self):
+        dec = {**copy.deepcopy(self.dec), 'mode': 'fix'}
+        self.assertEqual(carry_triage(dec, self.old, self.new, self.changed, 'h2')['mode'], 'fix')
+
     def test_c1_keeps_status_note_and_mode(self):
         self.assertEqual((self.f['C1']['status'], self.f['C1']['note'], self.f['C1']['mode']), ('post', 'keep', 'note'))
 

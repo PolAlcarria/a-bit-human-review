@@ -139,7 +139,8 @@ an older file can lack some of them.
   `author_said`, `thread`: `who`, `at`, `body`, `url`) after a re-review. A `rereviewed` entry: `from`, `to`, `at`,
   `commits`, `rewritten`, `counts`, `discarded_drafts`.
 - **`decisions.json`** (`PUT /api/decisions/<page>`, `triage.py`): `page`, `title`, `subtitle`, `session_id`,
-  `pr`, `repo_root`, `updated` (the tab's clock), `rereviews` (how many re-reviews the tab saw), `saved_at` (set by the
+  `pr`, `repo_root`, `mode` (the reviewer's choice, `post` or `fix`; left out, the page's built mode holds), `updated`
+  (the tab's clock), `rereviews` (how many re-reviews the tab saw), `saved_at` (set by the
   server), `findings`. Each finding id maps to `status` (`post`, `fix`, `skip` or null), `note`, `mode` (`note` or
   `comment`), `title`, `severity`, `anchor` (`path`, `line`, `in_diff`), `body`, and after a re-review `recheck` (the
   head it changed at) and `anchor_reset` (`path`, `line`, `at`).

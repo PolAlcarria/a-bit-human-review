@@ -243,6 +243,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {'error': 'invalid json'})
         if not isinstance(data, dict) or not isinstance(data.get('findings'), dict):
             return self._json(400, {'error': 'expected {"findings": {...}}'})
+        if data.get('mode') not in (None, *store.MODES):
+            # The reviewer's choice of mode (store.review_mode); left out, the page keeps the mode it was built with.
+            return self._json(400, {'error': 'mode must be post or fix'})
         with rereview.guard(name) as running:
             if running:
                 return self._json(423, rereview.locked_error(running))

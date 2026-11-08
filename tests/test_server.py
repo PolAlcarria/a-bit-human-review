@@ -145,6 +145,20 @@ class SaveTests(ServerTestCase):
         support.write_page(page)
         self.assertEqual(request('PUT', f'/api/decisions/{page}', {'findings': []}), (400, {'error': BAD_FINDINGS}))
 
+    def test_put_keeps_the_reviewers_mode(self):
+        page = page_name(41)
+        support.write_page(page)
+        path = f'/api/decisions/{page}'
+        self.assertEqual(request('PUT', path, {'findings': {}, 'rereviews': 0, 'mode': 'fix'})[0], 200)
+        self.assertEqual(request('GET', path)[1]['mode'], 'fix')
+
+    def test_put_with_a_mode_outside_post_and_fix_is_400(self):
+        page = page_name(42)
+        support.write_page(page)
+        self.assertEqual(request('PUT', f'/api/decisions/{page}', {'findings': {}, 'rereviews': 0, 'mode': 'both'}),
+                         (400, {'error': 'mode must be post or fix'}))
+        self.assertFalse(decisions_file(page).exists())
+
     def test_put_with_stale_rereviews_count_is_409(self):
         page = page_name(11)
         support.write_page(page, support.sample_page(page, rereviewed=[
