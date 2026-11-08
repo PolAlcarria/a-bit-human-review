@@ -409,7 +409,14 @@ def cmd_hook() -> int:
         return 0
     turns = read_turns(transcript)
     # A turn that ran /findings has its page already; a second one would read the review again, at a second cost.
-    if not turns or not names_viewer(turns[-1], trigger) or ran_findings(turns[-1]):
+    if not turns or ran_findings(turns[-1]):
+        return 0
+    if not names_viewer(turns[-1], trigger):
+        if trigger == 'explicit' and names_viewer(turns[-1], 'mention'):
+            # Named in prose, which no longer opens a page by default: say how to open it, once per such turn.
+            print(json.dumps({'systemMessage': 'Finding viewer: naming the viewer does not open a page (trigger is '
+                                               'explicit). Run /findings to open this review, or write /findings in '
+                                               'the prompt next time.'}))
         return 0
     for _ in range(3):
         if turns[-1]['texts'] or event.get('last_assistant_message'):

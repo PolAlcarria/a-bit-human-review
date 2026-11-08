@@ -4,6 +4,7 @@ import support  # noqa: F401  first: points the tool at a scratch environment be
 import contextlib
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -75,7 +76,10 @@ def run_hook(path, session):
              'last_assistant_message': 'Done.'}
     out = io.StringIO()
     page = support.OUT / f'{session}-page' / 'page.html'
-    with support.env(FINDING_VIEWER_CHILD=None), mock.patch('hook.render.launch_render', return_value=page) as launch, \
+    # These tests name the viewer in prose, so they run with trigger mention unless a test sets another trigger.
+    trigger = os.environ.get('FINDING_VIEWER_TRIGGER') or 'mention'
+    with support.env(FINDING_VIEWER_CHILD=None, FINDING_VIEWER_TRIGGER=trigger), \
+            mock.patch('hook.render.launch_render', return_value=page) as launch, \
             mock.patch('sys.stdin', io.StringIO(json.dumps(event))), contextlib.redirect_stdout(out):
         hook.cmd_hook()
     text_out = out.getvalue().strip()
@@ -83,18 +87,26 @@ def run_hook(path, session):
 
 
 class TriggerTest(unittest.TestCase):
-    """The trigger setting: mention opens on the viewer's name, explicit only on /findings in the prompt, off never."""
+    """The trigger setting: explicit (the default) opens only on /findings in the prompt, mention on the viewer's name,
+    off never."""
     TURN = [user('Review my branch and open it in the finding viewer'), assistant(REPORT), tool_result('toolu_rf1', 'ok'),
             assistant(text('Two findings, reported above.'))]
 
     def test_mention_opens_on_the_name(self):
-        _, launch = run_hook(write_jsonl('trig_a.jsonl', self.TURN), 'sess-trig-a')
+        with support.env(FINDING_VIEWER_TRIGGER='mention'):
+            _, launch = run_hook(write_jsonl('trig_a.jsonl', self.TURN), 'sess-trig-a')
         self.assertEqual(launch.call_count, 1)
+
+    def test_explicit_says_how_to_open_a_review_named_in_prose(self):
+        with support.env(FINDING_VIEWER_TRIGGER='explicit'):
+            message, launch = run_hook(write_jsonl('trig_e.jsonl', self.TURN), 'sess-trig-e')
+        self.assertEqual(launch.call_count, 0)
+        self.assertIn('Run /findings to open this review', message or '')
 
     def test_explicit_ignores_the_name(self):
         with support.env(FINDING_VIEWER_TRIGGER='explicit'):
-            message, launch = run_hook(write_jsonl('trig_b.jsonl', self.TURN), 'sess-trig-b')
-        self.assertEqual((message, launch.call_count), (None, 0))
+            _, launch = run_hook(write_jsonl('trig_b.jsonl', self.TURN), 'sess-trig-b')
+        self.assertEqual(launch.call_count, 0)
 
     def test_explicit_opens_on_the_command_in_the_prompt(self):
         turn = [user('Review my branch, then /findings')] + self.TURN[1:]
