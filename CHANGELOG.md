@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- A SessionStart hook (the plugin only) tells you when a newer version of the plugin is out: one line at session
+  start, checked against GitHub at most once a day (a failed lookup waits an hour, and is silent). It only notifies;
+  update with `/plugin`. The `update_check` setting (`FINDING_VIEWER_UPDATE_CHECK=0`) turns it off, and then no
+  request is made.
+
 ## [0.6.0] - 2026-11-08
 
 ### Added

@@ -82,7 +82,7 @@ Three layers: the entry point, the feature modules that do the work, and the sha
 | page | `web/index.html` | The list of all reviews, served at `/`, in two tabs (code reviews, diff reviews), its CSS and script inline ([The list of reviews](behaviour.md#the-list-of-reviews)) |
 | page | `web/shared.css` | The CSS both pages share: colour variables and resets, inlined into each |
 | plugin | `.claude-plugin/plugin.json`, `marketplace.json` | The plugin's name (`a-bit-human-review`), version and author; the repo is its own marketplace (source `./`) |
-| plugin | `hooks/hooks.json` | The Stop hook (`finding_viewer.py hook`, 15 s) and the UserPromptSubmit hook (`inject`, 10 s) |
+| plugin | `hooks/hooks.json` | The SessionStart hook (`finding_viewer.py session`, 5 s: `updates.py`, the once-a-day newer-version notice, cached in `update_check.json`), the Stop hook (`finding_viewer.py hook`, 15 s) and the UserPromptSubmit hook (`inject`, 10 s) |
 | plugin | `skills/findings/SKILL.md` | The `/a-bit-human-review:findings` command; `install` derives `~/.claude/commands/findings.md` from it |
 | shared | `config.py` | Settings, read from `config.json` in the data folder; each key is overridable by its `FINDING_VIEWER_*` variable; keys that take one of a few words (`CHOICES`) and whole numbers in a range (`RANGES`) |
 | shared | `paths.py` | Where the code and the data live; `log` appends to `viewer.log`; the one-time move of an old checkout's data, and `migrate_layout`, the one-time move of flat pages into a folder each, both under `.migrate.lock` |

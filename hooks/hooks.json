@@ -1,5 +1,8 @@
 {
   "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/finding_viewer.py\" session", "timeout": 5}]}
+    ],
     "Stop": [
       {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/finding_viewer.py\" hook", "timeout": 15}]}
     ],
