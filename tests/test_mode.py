@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 import render
+import reviews
 import store
 import triage
 
@@ -78,6 +79,25 @@ class RoutesFollowTheModeTest(unittest.TestCase):
     def test_handoff_says_the_mode_in_force(self):
         with mock.patch('triage.freshness.viewer_login', return_value='me'):
             self.assertEqual(triage.handoff(self.page('20261108-100004-mode-handoff', 'post', 'fix'))['mode'], 'fix')
+
+
+class ListCountsTest(unittest.TestCase):
+    """The list of reviews counts decisions in the page's mode and says the mode."""
+
+    def row(self, name, mode, statuses, dec_mode=None):
+        support.write_page(name, support.sample_page(name, mode=mode))
+        dec = {'findings': dict(zip(('C1', 'W1'), ({'status': s} for s in statuses))),
+               **({'mode': dec_mode} if dec_mode else {})}
+        store.decisions_path(name).write_text(json.dumps(dec), encoding='utf-8')
+        return next(r for r in reviews.list_reviews() if r['page'] == name)
+
+    def test_post_mode_does_not_count_a_stored_fix(self):
+        r = self.row('20261108-100011-list-post', 'post', ['post', 'fix'])
+        self.assertEqual((r['mode'], r['post'], r['fix']), ('post', 1, 0))
+
+    def test_fix_mode_does_not_count_a_stored_post(self):
+        r = self.row('20261108-100012-list-fix', 'post', ['post', 'fix'], 'fix')
+        self.assertEqual((r['mode'], r['post'], r['fix']), ('fix', 0, 1))
 
 
 if __name__ == '__main__':

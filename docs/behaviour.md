@@ -301,7 +301,8 @@ Served at `/`, filled from `GET /api/reviews`.
 - **Diff review cards**: the branch, base, files and `+`/`−` (the page's subtitle), the threads, how many are change
   requested ("N to change"), resolved and open, side chats and whether Claude got the triage. They have no freshness
   check and are never Done: a diff review stays in the list until it is archived or deleted.
-- **Badges** (code reviews): finding count, how many are decided and marked to post or to fix (`N to fix`, own code only; findings the
+- **Badges** (code reviews): finding count, the page's mode (`post mode` or `fix mode`; the counts follow it, as on the
+  page, so a status in the other mode's word counts as undecided), how many are decided and marked to post or to fix (`N to fix`, own code only; findings the
   new commits fixed are counted apart, "N fixed since"), `● N running` while a job runs on the review ("● Reviewing new
   commits" during a re-review; the list re-reads itself every 5 s until it ends, without re-checking the PRs), side
   chats, where the triage went (from `drafts.json`: drafting, "drafts ready to approve" linking to the dialog, "✓ posted

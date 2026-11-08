@@ -164,6 +164,7 @@ function triageBadges(r) {
     if (open > 0) out.push(`<span class="badge" title="Threads you have not marked: questions to Claude">${open} open</span>`);
   } else {
     out.push(`<span class="badge">${plural(r.findings, 'finding')}</span>`);
+    if (r.mode) out.push(`<span class="badge" title="${r.mode === 'fix' ? 'Your own code: findings are fixed, nothing is posted' : 'Findings become comments on the PR'}">${r.mode} mode</span>`);
     out.push(decided ? `<span class="badge${decided === r.findings ? ' ok' : ''}">${decided}/${r.findings} decided</span>` : '<span class="badge">not triaged</span>');
     if (r.post) out.push(`<span class="badge post">${r.post} to post</span>`);
     if (r.fix) out.push(`<span class="badge fix" title="Findings in your own code, to fix before anyone else reviews it">${r.fix} to fix</span>`);
