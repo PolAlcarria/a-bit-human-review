@@ -860,7 +860,16 @@ def pr_comments(data: dict, posted: list[dict] | None = None) -> tuple[str, dict
     return text, threads
 
 
-def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: set[str]) -> str:
+def needs_body(f: dict, affected: dict, context: str) -> bool:
+    """Whether the prompt quotes a finding's text. A fork of the review session has the review in its context, so it
+    gets the text only of a finding the new commits touch, or one whose words an earlier re-review rewrote (changed or
+    new). A fresh session knows nothing of the review: it gets every open finding's text."""
+    if context != 'fork':
+        return True
+    return f['id'] in affected or (f.get('rereview') or {}).get('status') in ('changed', 'new')
+
+
+def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: set[str], context: str = 'fork') -> str:
     ref, head, pr = st['from'], st['to'], data.get('pr')
     commits = spec.get('commits') or []
     n = len(commits)
@@ -890,8 +899,12 @@ def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: 
                     + (f"\n  Dismissed on the PR at {declined[f['id']]['at'][:12]} in an earlier re-review"
                        + (f": {declined[f['id']]['why']}" if declined[f['id']].get('why') else '') if f['id'] in declined
                        else ''))
+        if f['id'] in done or f['id'] in declined:
+            continue  # closed before: its id, title and why are enough while it stays so
         body = (f.get('body') or '').strip()
-        if body:
+        if body and not st.get('rewritten') and not needs_body(f, affected, context):
+            rows.append('  Its text is in your review above; the new commits do not touch its lines or file.')
+        elif body:
             body = body[:MAX_BODY_CHARS] + ('…' if len(body) > MAX_BODY_CHARS else '')
             rows.append('  ' + body.replace('\n', '\n  '))
         if mine := (spec.get('decisions') or {}).get(f['id']):

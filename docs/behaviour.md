@@ -522,7 +522,10 @@ new head (decisions E1–E4 of 2026-10-19).
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
   setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
-  anchors, body and what the new commits touched, the PR's comments (`pr_comments()`: every review thread with its
+  anchors and what the new commits touched, and its text only where the fork needs it (`needs_body()`): the fork has
+  the review in its context, so a finding the new commits do not touch, and whose words no earlier re-review rewrote,
+  says "Its text is in your review above" instead (after a force-push every finding carries its text). A finding fixed
+  or dismissed in an earlier re-review gets only its id, title and why, with no thread, chat or decision; the PR's comments (`pr_comments()`: every review thread with its
   replies, then the conversation, read with `gh api …/pulls/N/comments` and `…/issues/N/comments`, at most 20 000
   characters; a PR whose comments cannot be read dismisses nothing), and under each finding the reviewer's decision and
   note ("The reviewer chose: Post …"; the hand-off summary is not sent, since it repeats the findings); it asks the fork to review what the

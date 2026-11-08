@@ -17,6 +17,8 @@
 ### Changed
 - A re-review's prompt is shorter: instead of the whole hand-off summary, which listed every finding a second time,
   it carries each finding's decision and note under that finding.
+- A re-review no longer quotes the text of a finding the new commits do not touch (the fork has the review already),
+  nor anything but the title and the reason of one fixed or dismissed in an earlier re-review.
 - The hand-off to the review session follows the page's mode: in post mode it has nothing to fix, in fix mode
   nothing to post. A PR you opened used to mix both ("1 to post, 1 to fix locally, …"). Draft comments and posting
   are refused in fix mode, Send fixes to session in post mode.

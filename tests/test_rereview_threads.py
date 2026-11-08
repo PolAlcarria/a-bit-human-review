@@ -132,6 +132,33 @@ class PromptTest(unittest.TestCase):
         self.assertEqual(prompt.count('The reviewer chose'), 1)  # W1 has nothing, S1 is not on the page
         self.assertNotIn('Finding-viewer triage', prompt)
 
+    def test_in_a_fork_only_touched_or_rewritten_findings_carry_their_text(self):
+        data = support.sample_page('20261108-100022-bodies-prompt')
+        bodies = {f['id']: f['body'] for f in data['findings'] if f.get('body')}
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        spec = {'affected': {'C1': {'kind': 'lines'}}}
+        prompt = rereview.build_prompt(data, st, spec, None, set(bodies))
+        self.assertIn(bodies['C1'].strip().split('\n')[0], prompt)
+        for fid in set(bodies) - {'C1'}:
+            self.assertNotIn(bodies[fid].strip().split('\n')[0], prompt)
+        self.assertEqual(prompt.count('Its text is in your review above'), len(bodies) - 1)
+        for every in (rereview.build_prompt(data, st, spec, None, set(bodies), context='fresh'),
+                      rereview.build_prompt(data, {**st, 'rewritten': True}, spec, None, set(bodies))):
+            self.assertNotIn('Its text is in your review above', every)
+
+    def test_a_finding_closed_before_gets_only_its_title_and_why(self):
+        data = support.sample_page('20261108-100023-closed-prompt')
+        f = data['findings'][0]
+        f['rereview'] = {'status': 'fixed', 'at': 'c' * 40, 'why': 'rounded now'}
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        prompt = rereview.build_prompt(data, st, {'affected': {f['id']: {'kind': 'lines'}},
+                                                  'decisions': {f['id']: {'status': 'post', 'note': 'x'}}}, None, set())
+        start = prompt.index(f"- {f['id']} ")
+        block = prompt[start:prompt.index('\n- ', start + 1)]
+        self.assertIn('in an earlier re-review: rounded now', block)
+        self.assertNotIn(f['body'].strip().split('\n')[0], block)
+        self.assertNotIn('The reviewer chose', block)
+
     def test_decisions_keep_a_status_or_a_note_and_shorten_long_notes(self):
         got = rereview.decisions({'findings': {'C1': {'status': 'fix', 'note': ''}, 'W1': {'status': None, 'note': ' '},
                                                'S1': {'status': 'odd', 'note': 'n' * 700}, 'Q1': 'not a dict'}})
