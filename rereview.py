@@ -990,6 +990,39 @@ def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: 
                          comments=spec.get('pr_comments') or 'Comments on the PR: none.')
 
 
+def _ask_claude(page: str, job: str, st: dict, data: dict, spec: dict,
+                where: str) -> tuple[dict | None, str | None, str | None, list[dict] | None, dict]:
+    """Run the re-review's Claude session (a fork of the review session, or a fresh one) to its checked answer:
+    (the result event, an error, the session's id, the answer, each finding's thread on the PR)."""
+    _update(page, job, steps=['Checking out the new head'])
+    checkout, is_snapshot = store.review_checkout({**data, 'ref': st['to']})
+    taken = taken_ids(page, data)
+    _update(page, job, steps=['Checking out the new head', 'Reading the comments on the PR'])
+    comments, threads = pr_comments(data, draft.posted_reviews(page))
+    spec = {**spec, 'pr_comments': comments, 'threads': threads, 'chats': side_chats(page)}
+    resume = ['--resume', st['review_session'], '--fork-session'] if where == 'fork' else []
+    cmd = [claude_cli.binary(), '-p', *claude_cli.common_args(), *resume,
+           '--output-format', 'stream-json', '--verbose', '--allowedTools', *chat.READ_ONLY_TOOLS,
+           '--add-dir', str(paths.OUT), *(['--add-dir', checkout] if is_snapshot else []),
+           '--json-schema', json.dumps(SCHEMA)]
+    model = config.get('rereview_model')
+    if model:
+        cmd += ['--model', model]
+    cmd += limit_args()
+    result, error, fork = draft.run_fork(cmd, st['cwd'], build_prompt(data, st, spec, checkout if is_snapshot else None,
+                                                                    taken, where),
+                                         TIMEOUT_SECONDS, lambda **fields: _update(page, job, **fields),
+                                         'no findings returned')
+    answer = None
+    error = limit_error(result, error)
+    if not error:
+        try:
+            answer = parse_answer(result['structured_output'], data, taken)
+        except ValueError as exc:
+            error = f'The answer did not parse: {exc}.'
+    return result, error, fork, answer, threads
+
+
 def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
         write_page: Callable[[Path, dict], None]) -> None:
     """Worker (``finding_viewer.py job``): review the new commits in a fork of the review session, then rebuild the page
@@ -1008,33 +1041,9 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
                                                    'Start again. The page is unchanged.')
                 _write(page, cur)
         return
-    _update(page, job, steps=['Checking out the new head'])
-    checkout, is_snapshot = store.review_checkout({**data, 'ref': head})
-    taken = taken_ids(page, data)
-    _update(page, job, steps=['Checking out the new head', 'Reading the comments on the PR'])
-    comments, threads = pr_comments(data, draft.posted_reviews(page))
-    spec = {**spec, 'pr_comments': comments, 'threads': threads, 'chats': side_chats(page)}
     where = st.get('context') or 'fork'
-    resume = ['--resume', st['review_session'], '--fork-session'] if where == 'fork' else []
-    cmd = [claude_cli.binary(), '-p', *claude_cli.common_args(), *resume,
-           '--output-format', 'stream-json', '--verbose', '--allowedTools', *chat.READ_ONLY_TOOLS,
-           '--add-dir', str(paths.OUT), *(['--add-dir', checkout] if is_snapshot else []),
-           '--json-schema', json.dumps(SCHEMA)]
-    model = config.get('rereview_model')
-    if model:
-        cmd += ['--model', model]
-    cmd += limit_args()
-    result, error, fork = draft.run_fork(cmd, st['cwd'], build_prompt(data, st, spec, checkout if is_snapshot else None,
-                                                                    taken, where),
-                                         TIMEOUT_SECONDS, lambda **fields: _update(page, job, **fields),
-                                         'no findings returned')
-    answer, built = None, None
-    error = limit_error(result, error)
-    if not error:
-        try:
-            answer = parse_answer(result['structured_output'], data, taken)
-        except ValueError as exc:
-            error = f'The answer did not parse: {exc}.'
+    result, error, fork, answer, threads = _ask_claude(page, job, st, data, spec, where)
+    built = None
     if not error:
         _update(page, job, steps=((_load(page) or {}).get('steps') or [])[-11:] + ['Updating the page'])
         try:
