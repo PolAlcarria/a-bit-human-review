@@ -28,6 +28,40 @@ def transcript(sid: str | None) -> Path | None:
     return next((Path.home() / '.claude' / 'projects').glob(f'*/{sid}.jsonl'), None)
 
 
+_CONTEXT_CACHE: dict[str, tuple[float, int, int | None]] = {}  # path -> (mtime, size, tokens)
+
+
+def context_tokens(sid: str | None) -> int | None:
+    """How many tokens the session's context held at its last answer (the input it read, cached or not): what a fork
+    of it reads again. None when the transcript is gone or holds no answer. Kept per transcript until the file
+    changes, since the page asks often."""
+    path = transcript(sid)
+    if not path:
+        return None
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    cached = _CONTEXT_CACHE.get(str(path))
+    if cached and cached[:2] == (st.st_mtime, st.st_size):
+        return cached[2]
+    tokens = None
+    with path.open(encoding='utf-8', errors='replace') as fh:
+        for line in fh:
+            if '"usage"' not in line:
+                continue
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            usage = (d.get('message') or {}).get('usage') if d.get('type') == 'assistant' and not d.get('isSidechain') else None
+            if isinstance(usage, dict):
+                tokens = sum(usage.get(k) or 0 for k in ('input_tokens', 'cache_creation_input_tokens',
+                                                          'cache_read_input_tokens')) or tokens
+    _CONTEXT_CACHE[str(path)] = (st.st_mtime, st.st_size, tokens)
+    return tokens
+
+
 def review_session(data: dict) -> tuple[str, str] | None:
     """(id, working directory) of the Claude Code session that wrote the review, when its transcript still exists."""
     sid = data.get('review_session') or data.get('session_id')

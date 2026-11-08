@@ -28,10 +28,11 @@ INJECT_WINDOW_SECONDS = 48 * 3600
 
 def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
     data = store.page_data(page) or {}
-    # A review with no PR is the reviewer's own code before a PR exists: nothing is posted, so a finding is to fix, won't
-    # fix (stored as skip) or undecided; one stored as post, from before that, counts as undecided.
+    # The page's mode (store.review_mode). Fix: the reviewer's own code, so nothing is posted and a finding is to fix,
+    # won't fix (stored as skip) or undecided; one stored as post counts as undecided. Post: a finding is to post, not
+    # to post or undecided; one stored as fix counts as undecided. A diff review is always fix.
     diff = data.get('kind') == 'diff'
-    local = diff or not (data.get('pr') or dec.get('pr'))
+    local = diff or store.review_mode(data, dec) == 'fix'
     # Findings the new commits fixed (rereview.py) stay on the page, but there is nothing to post or decide for them.
     fixed = rereview.fixed(data)
     rereviewed = {f['id']: f.get('rereview') or {} for f in data.get('findings') or []}
@@ -41,19 +42,18 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
         if fid not in dict(items) and fid not in fixed:
             items.append((fid, {'title': '', 'status': None}))
     post = [] if local else [(k, v) for k, v in items if v.get('status') == 'post']
-    fix = [(k, v) for k, v in items if v.get('status') == 'fix']
+    fix = [(k, v) for k, v in items if v.get('status') == 'fix'] if local else []
     skip = [(k, v) for k, v in items if v.get('status') == 'skip']
 
     def undecided_status(v: dict) -> bool:
-        return not v.get('status') or (local and v.get('status') == 'post')
+        return not v.get('status') or v.get('status') == ('post' if local else 'fix')
 
     undecided = [k for k, v in items if undecided_status(v)]
     pr = f" (PR #{dec['pr']})" if dec.get('pr') else ''
     title = dec.get('title') or chat_state.get('title') or page
     tally = (f"{len(fix)} changes requested, {len(skip)} resolved, {len(undecided)} open" if diff else
              f"{len(fix)} to fix, {len(skip)} won't fix, {len(undecided)} undecided" if local else
-             f"{len(post)} to post, {f'{len(fix)} to fix locally, ' if fix else ''}{len(skip)} not to post, "
-             f"{len(undecided)} undecided")
+             f"{len(post)} to post, {len(skip)} not to post, {len(undecided)} undecided")
     heading = 'Diff review' if diff else 'Finding-viewer triage'
     lines = [f"{heading} for \"{title}\"{pr}: {tally}{f', {len(fixed)} fixed' if fixed else ''}. "
              f"Saved {dec.get('saved_at') or chat_state.get('updated', '?')}."]
@@ -150,11 +150,9 @@ def summarize(page: str, dec: dict, chat_state: dict, for_claude: bool) -> str:
                          'and show the reviewer what you changed. Leave the resolved threads as they are.')
     elif for_claude:
         if fix:
-            change = ("Change only those: leave the findings marked won't fix as they are." if local else
-                      'Change only those: the findings to post stay as they are. Do not post them or mention them on the PR.')
             lines.append('Fix the findings under "To fix locally" in the code, following the reviewer\'s notes, and show the '
-                         f'reviewer what you changed. {change}')
-        if not local and (post or not fix):
+                         "reviewer what you changed. Change only those: leave the findings marked won't fix as they are.")
+        if not local:
             lines.append("When drafting comments, follow the reviewer's notes and post the reviewer's own comments word for "
                          'word. Show the reviewer the final comments and get a yes before posting anything.')
     return '\n'.join(lines)

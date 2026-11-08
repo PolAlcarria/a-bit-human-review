@@ -3,9 +3,12 @@ carried to a new head (carry_triage, which uses default_anchor), and the PR comm
 (format_comments)."""
 import support  # noqa: F401  first: points the tool at a scratch environment before it is imported
 import copy
+import json
 import unittest
 
 import freshness
+import rereview
+import sessions
 from rereview import carry_triage, default_anchor, format_comments, new_findings, next_id, parse_answer
 
 DATA = {'findings': [{'id': 'C1', 'severity': 'critical'}, {'id': 'W1', 'severity': 'warning'},
@@ -188,6 +191,10 @@ class CarryTriageTest(unittest.TestCase):
         self.out = carry_triage(self.dec, old, new, changed, 'h2')
         self.f = self.out['findings']
 
+    def test_the_reviewers_page_mode_is_kept(self):
+        dec = {**copy.deepcopy(self.dec), 'mode': 'fix'}
+        self.assertEqual(carry_triage(dec, self.old, self.new, self.changed, 'h2')['mode'], 'fix')
+
     def test_c1_keeps_status_note_and_mode(self):
         self.assertEqual((self.f['C1']['status'], self.f['C1']['note'], self.f['C1']['mode']), ('post', 'keep', 'note'))
 
@@ -346,3 +353,99 @@ class FormatCommentsTest(unittest.TestCase):
         text = format_comments([], talk)
         self.assertLess(len(text), 23000)
         self.assertTrue(text.endswith('- … (more comments, left out)'))
+
+
+class LimitsTest(unittest.TestCase):
+    """rereview.max_turns and rereview.max_budget_usd: the flags the fork gets, and the error when it stops at one."""
+
+    def test_the_default_caps_turns_and_not_spending(self):
+        self.assertEqual(rereview.limit_args(), ['--max-turns', '80'])
+
+    def test_zero_means_no_limit_and_a_budget_is_passed_as_dollars(self):
+        with support.env(FINDING_VIEWER_REREVIEW_MAX_TURNS='0', FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD='1.5'):
+            self.assertEqual(rereview.limit_args(), ['--max-budget-usd', '1.5'])
+
+    def test_a_run_that_stopped_at_a_limit_says_which(self):
+        self.assertIn('rereview.max_turns', rereview.limit_error({'subtype': 'error_max_turns'}, 'error_max_turns'))
+        self.assertIn('rereview.max_budget_usd',
+                      rereview.limit_error({'subtype': 'error_max_budget_usd', 'result': 'x'}, 'x'))
+
+    def test_other_errors_stay_as_they_are(self):
+        self.assertEqual(rereview.limit_error({'subtype': 'success'}, 'no findings returned'), 'no findings returned')
+        self.assertIsNone(rereview.limit_error({'subtype': 'error_max_turns'}, None))
+
+
+class ContextTest(unittest.TestCase):
+    """rereview.context: fork (the default) needs the review session's transcript; fresh does not, and its prompt says
+    it has not seen the review."""
+
+    def page(self):
+        return support.sample_page('20261108-100031-context', session_id='sess-gone-0000', ref='a' * 40)
+
+    def test_fork_without_the_transcript_is_unavailable_and_names_the_setting(self):
+        why = rereview.unavailable(self.page())
+        self.assertIn('transcript is gone', why or '')
+        self.assertIn('rereview.context', why or '')
+
+    def test_fresh_needs_no_transcript(self):
+        with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
+            self.assertIsNone(rereview.unavailable(self.page()))
+
+    def test_a_fresh_prompt_says_it_has_not_seen_the_review(self):
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        fresh = rereview.build_prompt(self.page(), st, {}, None, set(), 'fresh')
+        fork = rereview.build_prompt(self.page(), st, {}, None, set())
+        self.assertTrue(fresh.startswith('You are re-checking a code review of PR #4242'))
+        self.assertIn('as a careful reviewer of this code would', fresh)
+        self.assertIn('the way you reviewed the PR', fork)
+        self.assertTrue(fork.startswith('PR #4242 has'))
+
+
+class UsageTest(unittest.TestCase):
+    """What a re-review read and cost, kept with the re-review and said in its message."""
+    RESULT = {'total_cost_usd': 1.371, 'usage': {'input_tokens': 2000, 'cache_creation_input_tokens': 10000,
+                                                 'cache_read_input_tokens': 400000, 'output_tokens': 3000}}
+
+    def test_usage_counts_every_token_read(self):
+        self.assertEqual(rereview.usage_of(self.RESULT, 'fork'),
+                         {'context': 'fork', 'tokens_read': 412000, 'cached': 400000, 'output_tokens': 3000,
+                          'cost_usd': 1.371})
+
+    def test_a_fork_says_its_cost_is_the_forks_total(self):
+        self.assertEqual(rereview.spent(rereview.usage_of(self.RESULT, 'fork')),
+                         "412k tokens read, $1.37 (the fork's total)")
+        self.assertEqual(rereview.spent(rereview.usage_of(self.RESULT, 'fresh')), '412k tokens read, $1.37')
+
+    def test_nothing_counted_says_nothing(self):
+        self.assertEqual(rereview.spent(rereview.usage_of(None, 'fork')), '')
+
+
+class ContextSizeTest(unittest.TestCase):
+    """Before a fork starts, the page is told how much of the review session's context it reads again."""
+
+    def answer(self, tokens, sidechain=False):
+        return {'type': 'assistant', 'isSidechain': sidechain, 'message': {'usage': {
+            'input_tokens': 10, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': tokens - 10}}}
+
+    def test_the_last_answers_context_counts_and_sidechains_do_not(self):
+        path = support.fake_session('sess-ctx-0001')
+        with path.open('a', encoding='utf-8') as fh:
+            for row in (self.answer(50000), self.answer(120000), self.answer(999999, sidechain=True)):
+                fh.write(json.dumps(row) + '\n')
+        self.assertEqual(sessions.context_tokens('sess-ctx-0001'), 120000)
+
+    def test_no_transcript_or_no_answer_is_none(self):
+        support.fake_session('sess-ctx-0002')
+        self.assertIsNone(sessions.context_tokens('sess-ctx-0002'))
+        self.assertIsNone(sessions.context_tokens('sess-ctx-gone'))
+
+    def test_view_gives_the_context_and_its_size(self):
+        path = support.fake_session('sess-ctx-0003')
+        with path.open('a', encoding='utf-8') as fh:
+            fh.write(json.dumps(self.answer(80000)) + '\n')
+        data = support.sample_page('20261108-100041-ctx', session_id='sess-ctx-0003', ref='a' * 40)
+        self.assertEqual({k: rereview.view(data, None)[k] for k in ('can', 'context', 'context_tokens')},
+                         {'can': True, 'context': 'fork', 'context_tokens': 80000})
+        with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
+            self.assertNotIn('context_tokens', rereview.view(data, None))
+

@@ -5,9 +5,14 @@ How each feature behaves, in detail. The map of the code (processes, modules, da
 
 ## Detecting a review: the Stop hook
 
-Runs as a Stop hook after every turn, but acts only on a turn whose prompt **names the viewer** (`MENTION_RE`: "finding
-viewer", "findings viewer", "finding-viewer", "a-bit-human-review", or `/findings` or `/a-bit-human-review:findings`
-inside the text; not inside a path, and not the `/findings` command or its shell output, which `COMMAND_TAG_RE` strips
+Runs as a Stop hook after every turn, but acts only on a turn whose prompt asks for the viewer, as the `trigger` setting
+says. With `off` the hook does nothing at all (only `/findings` opens pages). With `explicit`, the default, the prompt
+must have the command written in it (`EXPLICIT_RE`: `/findings` or `/a-bit-human-review:findings`, as in "review PR 12,
+then /findings"); a prompt that only names the viewer in prose opens nothing and gets the `systemMessage` "naming the
+viewer does not open a page (trigger is explicit). Run /findings to open this review, or write /findings in the prompt
+next time." With `mention`, the prompt **names the viewer** (`MENTION_RE`: "finding
+viewer", "findings viewer", "finding-viewer", or `/findings` or `/a-bit-human-review:findings` inside the text; the
+project's name alone does not count, since a session working on this repository says it all the time; not inside a path, and not the `/findings` command or its shell output, which `COMMAND_TAG_RE` strips
 first; a slash command's arguments do count). A transcript that never names the viewer is not even parsed. `/findings`
 is the other way a page opens (`/a-bit-human-review:findings` when installed as a plugin); it runs the same detection on
 the latest review turn of the session. `/findings` with no argument opens the latest review in this session, else the
@@ -43,12 +48,12 @@ Whether the turn is a review at all:
 - `select_findings()` on the parsed markdown: at least one anchored finding.
 - Otherwise `review_intent()`, for reviews the parser cannot read (tables, prose, findings without lines). The answer
   must be finding-shaped (400+ characters with a `file:line` anchor or two severity words) and a review must have been
-  asked for: the prompt names the viewer, says "review", or a `ReportFindings` call or a skill with "review" in its name
+  asked for: the prompt asks for the viewer (as the `trigger` setting says), says "review", or a `ReportFindings` call or a skill with "review" in its name
   ran in the turn. Claude then reads the findings ([Building a page: render](#building-a-page-render)).
-- A named turn with no review in it gets a one-line `systemMessage` saying so.
+- A turn that asks for the viewer with no review in it gets a one-line `systemMessage` saying so.
 
 **A review run in the background** (the `code-review` skill forked, or an `Agent` call with `run_in_background`) splits
-in two turns: the one whose prompt names the viewer launches it (the tool's result says it runs in the background), and
+in two turns: the one whose prompt asks for the viewer launches it (the tool's result says it runs in the background), and
 its findings come in a later turn that starts with the task's notification (a user row with `origin.kind ==
 "task-notification"`, naming the call in `<tool-use-id>`). `read_turns()` gives that turn the prompt and hand-off of the
 turn that launched the task (found by the call's id, else the turn before) and records it as `continues`; its texts and
@@ -112,11 +117,19 @@ finds the line for findings that name a file or symbol but no line (tagged "line
 is told not to review, judge or reword. Numbered items keep their number with the severity letter (should-fix 3 → `W3`).
 If Claude fails, the regex findings are used and the page says so; if both find nothing, no page opens. `ReportFindings`
 input is already structured and skips this step. The `extract.enabled` setting turns it off
-(`FINDING_VIEWER_EXTRACT=0`). About 45–60 s and $0.10–0.30 per review.
+(`FINDING_VIEWER_EXTRACT=0`). With `extract.confirm` on, the Stop hook never starts it: a review that needs it gets the
+`systemMessage` "Claude has to read this review to open it (about a minute, $0.10–0.30). Run /findings to open it.",
+nothing is recorded in `state.json`, and `/findings` reads and opens it. About 45–60 s and $0.10–0.30 per review.
 
 **Path resolution** (`resolve_path()`): anchors are matched against the repo's file list, also trying a `src/` prefix
 and suffix matches. When a suffix is ambiguous, files in the diff win, then the shortest path; the alternatives are
 shown on the page.
+
+**Which mode** (`render.review_mode()`), decided once here and kept by a re-review: `fix` for your own code (no PR, or a
+PR the `gh` user opened), `post` for someone else's PR, or when `gh` cannot say who you are. It is stored as `mode` in
+`review.json`; the page can switch it ([The review page](#the-review-page)). `store.review_mode()` gives the mode in
+force: always `fix` with no PR (nothing to post to), else the reviewer's choice, else the built one; a page built
+before modes takes `fix` when a finding is marked Fix, else `post`.
 
 The output is the folder `out/<YYYYmmdd-HHMMSS>-<slug>/`: `review.json` (the data) and `page.html` (the template with
 the data JSON inlined, `<` escaped). `build_page()` builds the data and `write_page()` writes both files, each in one
@@ -159,15 +172,17 @@ Loads highlight.js, marked and DOMPurify from cdnjs; everything else is inline.
   save removes those older keys.
 - **Anchor**: by default the first flagged line that falls inside a diff hunk, else the first flagged line. Clicking a
   line number moves it. Each saved anchor carries `in_diff`, which tells Claude whether it can be an inline comment.
-- **Fix** (own code only): on a review with no PR, or of a PR the `gh` user opened (`own_code` from `/api/handoff`),
-  each finding gets a third button, Fix (`f`), between Post and Don't post (on a PR review; a local review has only Fix
-  and Won't fix), stored as `status: "fix"`. Its note is always a note for Claude, never a comment posted word for word.
-  Fix findings are never drafted or posted; Copy triage and the hand-off list them under "To fix locally".
-- **Local review** (no PR): a review with no PR is your own code before a PR exists, so nothing is posted. Each finding
-  gets Fix (`f`) and Won't fix (`r`, stored as `skip`), with no Post button, key or filter; the header says "Local
-  review · no PR". A finding stored as Post before this (an older page) counts as undecided and keeps its stored value
-  until you pick again. Copy triage says "N to fix, N won't fix, N undecided".
-- **Send fixes to session**: on your own code (no PR, or a PR you opened) with at least one Fix finding, the toolbar
+- **Mode**: the header says the page's mode, **Post mode** (findings become comments on the PR) or **Fix mode** (your
+  own code: fix it, nothing is posted; "Local review · no PR" with no PR), as `store.review_mode()` gives it. Each mode
+  has two buttons and never mixes them: Post (`a`) and Don't post (`r`), or Fix (`f`) and Won't fix (`r`, stored as
+  `skip`). A page with a PR has **Switch to post** / **Switch to fix** beside it (not while a re-review runs, nor on a
+  page opened as a file); a page with no PR has nothing to post to, so it stays in fix mode. Switching stores `mode` in
+  the triage and moves each decision with it (Post ↔ Fix; Don't post / Won't fix and undecided stay), and says how
+  many moved. A finding stored with the other mode's word (from before modes) counts as undecided and keeps its stored
+  value until you pick again. In fix mode a note is always a note for Claude, never a comment posted word for word,
+  Draft comments is hidden, and Copy triage says "N to fix, N won't fix, N undecided"; in post mode Send fixes is
+  hidden.
+- **Send fixes to session**: in fix mode with at least one Fix finding, the toolbar
   button hands the triage to the review session now, without waiting for your next message there: `POST
   /api/send-fixes/<page>` starts a detached worker that relays `summarize(…, for_claude=True)` with `send.deliver` to
   the session open in Claude Code (`~/.claude/sessions`), then deletes the relay's own transcript. The button reads
@@ -243,7 +258,7 @@ built-in buttons, and an empty list shows none. A page opened as a file shows th
 
 ## Draft comments and posting
 
-Draft comments (toolbar button on PR reviews whose review transcript still exists; `n` with nothing left to decide
+Draft comments (toolbar button on PR reviews in post mode whose review transcript still exists; `n` with nothing left to decide
 flashes it; `page.html#drafts` opens the dialog). `draft.py`, in three steps:
 
 1. **Draft**: `claude -p --resume <review session> --fork-session` inherits the whole review conversation, gets `PROMPT`
@@ -288,7 +303,8 @@ Served at `/`, filled from `GET /api/reviews`.
 - **Diff review cards**: the branch, base, files and `+`/`−` (the page's subtitle), the threads, how many are change
   requested ("N to change"), resolved and open, side chats and whether Claude got the triage. They have no freshness
   check and are never Done: a diff review stays in the list until it is archived or deleted.
-- **Badges** (code reviews): finding count, how many are decided and marked to post or to fix (`N to fix`, own code only; findings the
+- **Badges** (code reviews): finding count, the page's mode (`post mode` or `fix mode`; the counts follow it, as on the
+  page, so a status in the other mode's word counts as undecided), how many are decided and marked to post (post mode) or to fix (`N to fix`, fix mode); findings the
   new commits fixed are counted apart, "N fixed since"), `● N running` while a job runs on the review ("● Reviewing new
   commits" during a re-review; the list re-reads itself every 5 s until it ends, without re-checking the PRs), side
   chats, where the triage went (from `drafts.json`: drafting, "drafts ready to approve" linking to the dialog, "✓ posted
@@ -325,14 +341,17 @@ new", gives ids and anchors at the new head, leaves the fixed findings out of "T
 "Fixed by the new commits, so not to post" line), and notes under a finding marked Post that it changed since the
 reviewer chose Post (`recheck`).
 
-The summary (`summarize()`) lists what to post with its anchor (anchors outside the diff are flagged "put it in the
-review body"), what to fix locally (an instruction to change the code and not post it), what not to post, what is
+The summary (`summarize()`) follows the page's mode (`store.review_mode()`). In post mode it lists what to post with its
+anchor (anchors outside the diff are flagged "put it in the review body"), what not to post, what is
 undecided, each note, the last chat reply per finding, the freshness warning, a note when the PR is already merged,
 closed or reviewed by you (`pr_note()`: approved means post as a COMMENT review and do not approve again), the paths to
 the full JSON, and an instruction to show the final comments and get a yes before posting. `/findings decisions` prints
 the same text on demand and marks it seen. Side-chat processes set `FINDING_VIEWER_CHILD=1`, which turns this hook off
-for them. On a local review (no PR) it says "N to fix, N won't fix, N undecided" and has no "to post" or drafting
-instruction.
+for them. In fix mode (no PR, or your own PR, unless you switched it) it says "N to fix, N won't fix, N undecided",
+lists what to fix locally (an instruction to change the code and not post it) and what not to fix, and has no "to post"
+or drafting instruction. A finding stored with the other mode's word (Post in fix mode, Fix in post mode) counts as
+undecided. Draft comments and Approve & post are refused in fix mode, and Send fixes to session in post mode (409, with
+the mode to switch to).
 
 After a post from the page ([Draft comments and posting](#draft-comments-and-posting)), the hook keeps handing over a
 triage that still has Fix findings (`mark_handed()` does not mark it seen while they wait), and the summary marks each
@@ -464,8 +483,13 @@ of a first chat message that was stopped or whose worker died, or the relay sess
 ## Review the new commits
 
 When the freshness check says `behind` (or `rewritten`), the banner offers "Review the N new commits" ("Review the new
-head"), unless the page cannot fork its review session (the transcript is gone) or shows the working tree: then there is
-no button and the reason is the banner text's title. Starting saves any pending triage first. With unposted drafts
+head"), with what it will read beside it: for a fork, "Reads the review session again: about 120k tokens of context"
+(`sessions.context_tokens()`: the input of the review session's last answer, read from its transcript and kept until
+the file changes), for a fresh session "New session: reads only the findings and the new commits", and, when the new
+commits change none of the findings' files, **Move the lines only (no Claude)** (also on a page whose review transcript
+is gone; its running banner says "Moving the findings to the new head…"). When the page shows the working tree, or
+`rereview.context` is `fork` and the review's transcript is gone, there is no Review button and the reason is the banner
+text's title. Starting saves any pending triage first. With unposted drafts
 (ready, or a failed post), the banner first asks "This discards the unposted drafts…" with Discard drafts and review /
 Cancel (Esc cancels); they go only if the re-review succeeds. While it runs, its own banner says "Reviewing the N new
 commits… 1:12" (the clock is `aria-hidden`; the start is said once) with Stop, and the page is **locked**: Post / Fix /
@@ -476,7 +500,8 @@ again, Copy triage and Sessions stay. The lock comes from `GET /api/activity` (p
 tab that has not noticed it yet has its write refused (423) and shows the server's reason, then locks too. The chat's
 text box stays editable, so a question can be typed meanwhile. Starting moves focus to the new banner's Stop (the Review
 button leaves). When the job succeeds, every tab of the page reloads itself (a tab in the background, once it is shown
-again) and says once what changed: "Reviewed f48a8e88: 1 fixed, 1 still applies, 2 new."; session storage carries across
+again) and says once what changed: "Reviewed f48a8e88: 1 fixed, 1 still applies, 2 new (412k tokens read, $1.37 (the
+fork's total))." (the cost of a fork can include the review session's own spend); session storage carries across
 the reload the server's words, an unsent chat message, the open finding (also in the hash), where focus was (the chat
 box, or the banner, whose note then takes it) and whether a save was refused meanwhile, which the rebuilt page cannot
 take (the note says to make that change again). A failure or a Stop unlocks the page as it was, says why, and sends a
@@ -495,19 +520,37 @@ and go when you decide again or pick a line (the reset note also with the next r
 The freshness check says the PR moved past the reviewed commit; this reviews those commits and brings the page to the
 new head (decisions E1–E4 of 2026-10-19).
 
-- **Start** (`POST /api/rereview/<page>`, `rereview.start()`): refused when the page shows the working tree or the
-  review transcript is gone (409, and the page shows no button), when the check (`freshness.check()`, cached for a
+- **Start** (`POST /api/rereview/<page>`, `rereview.start()`): refused when the page shows the working tree or, in a
+  fork, the review transcript is gone (409, and the page shows no button), when the check (`freshness.check()`, cached for a
   minute) finds nothing newer or the new head is not in the clone (409), while another job runs on the page (409 "Wait
   until Draft comments ends, or stop it in Sessions."; posting and telling cannot be stopped), and while unposted drafts
-  are not confirmed for discarding (409 with `drafts: true`). The server hands the worker the triage as the hand-off
-  hook writes it (`summarize()`), the new commits and the freshness `affected` map.
-- **The fork**: `claude -p --resume <review session> --fork-session`, read-only tools (`chat.READ_ONLY_TOOLS`), hooks
+  are not confirmed for discarding (409 with `drafts: true`). The server hands the worker each finding's decision and
+  note (`decisions()`, a note cut at 600 characters), the new commits and the freshness `affected` map.
+- **Lines only** (`lines_only: true` in the start's body): when the freshness check says `behind` and its `affected` map
+  is empty (the new commits change none of the findings' files), the findings can move to the new head without Claude.
+  No transcript, no `claude` and no PR comments are needed: the worker skips `_ask_claude()` and hands `new_findings()`
+  an empty answer, so each finding keeps its text and its last re-review outcome and moves through the diff, and the
+  triage carries over as below. It does not review what the commits added. The start is refused (409) when a finding's
+  file changed or the history was rewritten. The `rereviewed` entry says `lines_only`, the job's message is "Moved the
+  findings to f48a8e88 without Claude: the new commits change none of their files.", and the hand-off says the page
+  was moved "without a re-review". `rereview.view()` gives `lines_ok` when it can run.
+- **The fork**: with `rereview.context` `fork` (the default), `claude -p --resume <review session> --fork-session`;
+  with `fresh`, a new `claude -p` in the page's repository, whose prompt starts by saying it has not seen the review
+  and carries every open finding's text, and which needs no review transcript (with `fork`, a page whose transcript is
+  gone offers no re-review and says to set `fresh`). The review session's id is kept on record either way, so it is
+  never deleted. The Sessions panel names it "Re-review fork" or "Re-review session". Read-only tools (`chat.READ_ONLY_TOOLS`), hooks
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
-  setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
-  anchors, body and what the new commits touched, the PR's comments (`pr_comments()`: every review thread with its
+  setting; `--max-turns` from `rereview.max_turns` (80 by default) and `--max-budget-usd` from
+  `rereview.max_budget_usd` (none by default), each left out at 0 (`limit_args()`). A run that stops at one fails with
+  which limit it was and how to raise it (`limit_error()`), and the page is unchanged. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
+  anchors and what the new commits touched, and its text only where the fork needs it (`needs_body()`): the fork has
+  the review in its context, so a finding the new commits do not touch, and whose words no earlier re-review rewrote,
+  says "Its text is in your review above" instead (after a force-push every finding carries its text). A finding fixed
+  or dismissed in an earlier re-review gets only its id, title and why, with no thread, chat or decision; the PR's comments (`pr_comments()`: every review thread with its
   replies, then the conversation, read with `gh api …/pulls/N/comments` and `…/issues/N/comments`, at most 20 000
-  characters; a PR whose comments cannot be read dismisses nothing), and the triage; it asks the fork to review what the
+  characters; a PR whose comments cannot be read dismisses nothing), and under each finding the reviewer's decision and
+  note ("The reviewer chose: Post …"; the hand-off summary is not sent, since it repeats the findings); it asks the fork to review what the
   commits changed and to re-check each finding. **Each finding's own thread** goes under that finding instead of in the
   list (`finding_threads()`): a comment is a finding's when it is in a review the page posted (`draft.posted_reviews()`:
   `posted.json`, or `drafts.json` for a review posted before it existed), on the same file, with the same text, else on
@@ -527,7 +570,7 @@ new head (decisions E1–E4 of 2026-10-19).
   `render.build_page()` with `reviewed_sha` = the new head and the page's own title, PR, repo, folder, session ids and
   name, so files, hunks, diff markers, PR author and blob links are all read again; a finding without new anchors keeps
   the old ones that map cleanly. The page data gains `rereviewed` (`from`, `to`, `at`, `commits`, `rewritten`, `counts`,
-  `discarded_drafts`, appended) and each finding its `rereview` (`status`, `at`, `why`; `author_said` unless `none`;
+  `discarded_drafts`, `usage`: the tokens read, cached and written and claude's cost, appended) and each finding its `rereview` (`status`, `at`, `why`; `author_said` unless `none`;
   `thread`, the finding's thread on the PR as read, also for a finding fixed or dismissed before). `why` is kept for
   `fixed` and `dismissed`, and for an open finding the author called fixed. `carry_triage()` keeps each decision, note
   and mode by id; a saved anchor that differs from the old default line was picked by the reviewer and moves through the

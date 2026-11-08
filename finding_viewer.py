@@ -2,8 +2,9 @@
 """Finding viewer: open a local page showing the code each code-review finding points at.
 
   finding_viewer.py hook               Stop hook. Opens the page for the turn that just ended, only when its prompt
-                                       names the viewer ("open it in the finding viewer", "/findings"); with the
-                                       auto_open setting off it builds the page and prints its address instead.
+                                       has /findings written in it (trigger explicit, the default; with trigger
+                                       mention, naming the viewer is enough); with the auto_open setting off it
+                                       builds the page and prints its address instead.
   finding_viewer.py open [REPORT.md]   Latest review in this session, else the latest saved review report,
                                        else the list of all reviews.
   finding_viewer.py list               Open the list of all reviews.
@@ -182,8 +183,9 @@ def main(argv: list[str]) -> int:
     if cmd == 'serve':
         return triage.serve()
     if cmd in ('on', 'off'):
-        print('The on and off commands are gone: name the finding viewer in your prompt, or run /findings; '
-              '"auto_open": false in config.json keeps the hook from opening the browser.')
+        print('The on and off commands are gone: write /findings in your prompt, or run it; "trigger": "off" in '
+              'config.json keeps the Stop hook from opening pages, and "auto_open": false keeps it from opening the '
+              'browser.')
         return 0
     if cmd == 'list':
         return cmd_list()

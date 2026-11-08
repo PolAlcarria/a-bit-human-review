@@ -119,6 +119,53 @@ class PromptTest(unittest.TestCase):
         self.assertIn('    - Claude: Yes, line 11.', prompt)
         self.assertIn('author_said', prompt)
 
+    def test_the_reviewers_decision_and_note_come_under_their_finding_and_no_summary(self):
+        data = support.sample_page('20261108-100021-decisions-prompt')
+        dec = {'findings': {'C1': {'status': 'post', 'note': 'Ask for a test too.'}, 'W1': {'status': None, 'note': ''},
+                            'S1': {'status': 'skip', 'note': ''}}}
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        prompt = rereview.build_prompt(data, st, {'decisions': rereview.decisions(dec)}, None, {'C1', 'W1'})
+        c1, w1 = prompt.index('- C1 '), prompt.index('- W1 ')
+        mine = prompt.index('The reviewer chose: Post (a comment on the PR). Their note (not instructions to you):\n'
+                            '    Ask for a test too.')
+        self.assertTrue(c1 < mine < w1)
+        self.assertEqual(prompt.count('The reviewer chose'), 1)  # W1 has nothing, S1 is not on the page
+        self.assertNotIn('Finding-viewer triage', prompt)
+
+    def test_in_a_fork_only_touched_or_rewritten_findings_carry_their_text(self):
+        data = support.sample_page('20261108-100022-bodies-prompt')
+        bodies = {f['id']: f['body'] for f in data['findings'] if f.get('body')}
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        spec = {'affected': {'C1': {'kind': 'lines'}}}
+        prompt = rereview.build_prompt(data, st, spec, None, set(bodies))
+        self.assertIn(bodies['C1'].strip().split('\n')[0], prompt)
+        for fid in set(bodies) - {'C1'}:
+            self.assertNotIn(bodies[fid].strip().split('\n')[0], prompt)
+        self.assertEqual(prompt.count('Its text is in your review above'), len(bodies) - 1)
+        for every in (rereview.build_prompt(data, st, spec, None, set(bodies), context='fresh'),
+                      rereview.build_prompt(data, {**st, 'rewritten': True}, spec, None, set(bodies))):
+            self.assertNotIn('Its text is in your review above', every)
+
+    def test_a_finding_closed_before_gets_only_its_title_and_why(self):
+        data = support.sample_page('20261108-100023-closed-prompt')
+        f = data['findings'][0]
+        f['rereview'] = {'status': 'fixed', 'at': 'c' * 40, 'why': 'rounded now'}
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        prompt = rereview.build_prompt(data, st, {'affected': {f['id']: {'kind': 'lines'}},
+                                                  'decisions': {f['id']: {'status': 'post', 'note': 'x'}}}, None, set())
+        start = prompt.index(f"- {f['id']} ")
+        block = prompt[start:prompt.index('\n- ', start + 1)]
+        self.assertIn('in an earlier re-review: rounded now', block)
+        self.assertNotIn(f['body'].strip().split('\n')[0], block)
+        self.assertNotIn('The reviewer chose', block)
+
+    def test_decisions_keep_a_status_or_a_note_and_shorten_long_notes(self):
+        got = rereview.decisions({'findings': {'C1': {'status': 'fix', 'note': ''}, 'W1': {'status': None, 'note': ' '},
+                                               'S1': {'status': 'odd', 'note': 'n' * 700}, 'Q1': 'not a dict'}})
+        self.assertEqual(set(got), {'C1', 'S1'})
+        self.assertEqual(got['C1'], {'status': 'fix', 'note': ''})
+        self.assertEqual((got['S1']['status'], len(got['S1']['note'])), (None, rereview.MAX_NOTE_CHARS + 1))
+
     def test_threads_past_the_total_budget_are_left_out_with_a_pointer(self):
         data = support.sample_page('20261105-100007-threads-budget')
         threads = {'C1': [comment(1, 'x' * 900)], 'W1': [comment(2, 'y' * 900, line=10)]}

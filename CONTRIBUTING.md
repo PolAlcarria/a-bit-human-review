@@ -22,7 +22,9 @@ python3 -m unittest discover -s tests -v
 
 `tests/support.py` clears every `FINDING_VIEWER_*` variable for the tests, so the suite runs the same inside a Claude
 Code session. A hand-run `finding_viewer.py hook` or `inject` stays quiet while `FINDING_VIEWER_CHILD` is set: unset it
-for those.
+for those. A hand-run `hook` acts only on a prompt with `/findings` in it, unless
+`FINDING_VIEWER_TRIGGER=mention`; the hook tests that name the viewer in prose run with `mention` (`run_hook` in
+`tests/test_hook.py`).
 
 `tests/support.py` is imported first by every test module. It sets up:
 

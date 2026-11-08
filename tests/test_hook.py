@@ -4,6 +4,7 @@ import support  # noqa: F401  first: points the tool at a scratch environment be
 import contextlib
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -75,11 +76,77 @@ def run_hook(path, session):
              'last_assistant_message': 'Done.'}
     out = io.StringIO()
     page = support.OUT / f'{session}-page' / 'page.html'
-    with support.env(FINDING_VIEWER_CHILD=None), mock.patch('hook.render.launch_render', return_value=page) as launch, \
+    # These tests name the viewer in prose, so they run with trigger mention unless a test sets another trigger.
+    trigger = os.environ.get('FINDING_VIEWER_TRIGGER') or 'mention'
+    with support.env(FINDING_VIEWER_CHILD=None, FINDING_VIEWER_TRIGGER=trigger), \
+            mock.patch('hook.render.launch_render', return_value=page) as launch, \
             mock.patch('sys.stdin', io.StringIO(json.dumps(event))), contextlib.redirect_stdout(out):
         hook.cmd_hook()
     text_out = out.getvalue().strip()
     return (json.loads(text_out)['systemMessage'] if text_out else None), launch
+
+
+class TriggerTest(unittest.TestCase):
+    """The trigger setting: explicit (the default) opens only on /findings in the prompt, mention on the viewer's name,
+    off never."""
+    TURN = [user('Review my branch and open it in the finding viewer'), assistant(REPORT), tool_result('toolu_rf1', 'ok'),
+            assistant(text('Two findings, reported above.'))]
+
+    def test_mention_opens_on_the_name(self):
+        with support.env(FINDING_VIEWER_TRIGGER='mention'):
+            _, launch = run_hook(write_jsonl('trig_a.jsonl', self.TURN), 'sess-trig-a')
+        self.assertEqual(launch.call_count, 1)
+
+    def test_the_default_is_explicit(self):
+        self.assertEqual(hook.config.get('trigger'), 'explicit')
+
+    def test_explicit_says_how_to_open_a_review_named_in_prose(self):
+        with support.env(FINDING_VIEWER_TRIGGER='explicit'):
+            message, launch = run_hook(write_jsonl('trig_e.jsonl', self.TURN), 'sess-trig-e')
+        self.assertEqual(launch.call_count, 0)
+        self.assertIn('Run /findings to open this review', message or '')
+
+    def test_explicit_ignores_the_name(self):
+        with support.env(FINDING_VIEWER_TRIGGER='explicit'):
+            _, launch = run_hook(write_jsonl('trig_b.jsonl', self.TURN), 'sess-trig-b')
+        self.assertEqual(launch.call_count, 0)
+
+    def test_explicit_opens_on_the_command_in_the_prompt(self):
+        turn = [user('Review my branch, then /findings')] + self.TURN[1:]
+        with support.env(FINDING_VIEWER_TRIGGER='explicit'):
+            _, launch = run_hook(write_jsonl('trig_c.jsonl', turn), 'sess-trig-c')
+        self.assertEqual(launch.call_count, 1)
+
+    def test_off_never_opens(self):
+        turn = [user('Review my branch, then /findings')] + self.TURN[1:]
+        with support.env(FINDING_VIEWER_TRIGGER='off'):
+            message, launch = run_hook(write_jsonl('trig_d.jsonl', turn), 'sess-trig-d')
+        self.assertEqual((message, launch.call_count), (None, 0))
+
+
+class ExtractConfirmTest(unittest.TestCase):
+    """extract.confirm: a review Claude has to read is not read by the hook; it says to run /findings."""
+    TURN = [user('Review my branch and open it in the finding viewer'),
+            assistant(text('## Should-fix\n\n- W1 `src/app/billing.py:42` The total is not rounded, so 0.1 + 0.2 '
+                           'shows 0.30000000000000004 on the invoice. ' + 'More detail on why it matters. ' * 20))]
+
+    def test_on_the_hook_starts_no_claude_and_says_to_run_findings(self):
+        with support.env(FINDING_VIEWER_EXTRACT='1', FINDING_VIEWER_EXTRACT_CONFIRM='1'):
+            message, launch = run_hook(write_jsonl('conf_a.jsonl', self.TURN), 'sess-conf-a')
+        self.assertEqual(launch.call_count, 0)
+        self.assertIn('Run /findings to open it', message or '')
+
+    def test_off_the_hook_starts_the_reading(self):
+        with support.env(FINDING_VIEWER_EXTRACT='1'):
+            message, launch = run_hook(write_jsonl('conf_b.jsonl', self.TURN), 'sess-conf-b')
+        self.assertEqual(launch.call_count, 1)
+        self.assertIn('Claude is reading the review', message or '')
+
+    def test_a_review_that_needs_no_claude_opens_either_way(self):
+        turn = [self.TURN[0], assistant(REPORT), tool_result('toolu_rf1', 'ok'), assistant(text('Two findings.'))]
+        with support.env(FINDING_VIEWER_EXTRACT='1', FINDING_VIEWER_EXTRACT_CONFIRM='1'):
+            _, launch = run_hook(write_jsonl('conf_c.jsonl', turn), 'sess-conf-c')
+        self.assertEqual(launch.call_count, 1)
 
 
 class BackgroundReviewHookTest(unittest.TestCase):
@@ -223,9 +290,9 @@ class AutoOpenTest(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(finding_viewer.main(['finding_viewer.py', 'off']), 0)
-        self.assertEqual(out.getvalue().strip(), 'The on and off commands are gone: name the finding viewer in your '
-                         'prompt, or run /findings; "auto_open": false in config.json keeps the hook from opening the '
-                         'browser.')
+        self.assertEqual(out.getvalue().strip(), 'The on and off commands are gone: write /findings in your prompt, '
+                         'or run it; "trigger": "off" in config.json keeps the Stop hook from opening pages, and '
+                         '"auto_open": false keeps it from opening the browser.')
 
 
 if __name__ == '__main__':

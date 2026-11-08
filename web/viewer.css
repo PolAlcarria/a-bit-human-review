@@ -322,3 +322,4 @@ body.chat-off .layout { grid-template-columns: minmax(240px, 300px) minmax(0, 1f
   .pulse, .card.flash, .linkbtn.flash, #rereview.flash { animation: none; }
   .progress .bar span { transition: none; }
 }
+.rr-cost { color: var(--muted); font-size: 12px; }

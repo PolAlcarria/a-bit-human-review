@@ -342,14 +342,21 @@ class NamesViewerTest(unittest.TestCase):
     def test_handed_back_triage_is_not_a_request(self):
         self.assertIs(names_viewer(turn('open it in the finding viewer', handoff=True)), False)
 
-    def test_project_name_counts(self):
-        self.assertIs(names_viewer(turn('run a-bit-human-review on it')), True)
+    def test_project_name_alone_does_not_count(self):
+        self.assertIs(names_viewer(turn('run a-bit-human-review on it')), False)
+        self.assertIs(names_viewer(turn('fix the hook of a-bit-human-review')), False)
 
     def test_findings_dash_viewer_counts(self):
         self.assertIs(names_viewer(turn('open the findings-viewer')), True)
 
     def test_script_name_does_not_count(self):
         self.assertIs(names_viewer(turn('python3 finding_viewer.py')), False)
+
+    def test_explicit_trigger_counts_only_the_command_written_in_the_prompt(self):
+        self.assertIs(names_viewer(turn('review PR 12, then /findings'), 'explicit'), True)
+        self.assertIs(names_viewer(turn('review PR 12, then /a-bit-human-review:findings'), 'explicit'), True)
+        self.assertIs(names_viewer(turn('open it in the finding viewer'), 'explicit'), False)
+        self.assertIs(names_viewer(turn('<command-name>/findings</command-name>'), 'explicit'), False)
 
 
 class RanFindingsTest(unittest.TestCase):

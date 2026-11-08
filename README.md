@@ -23,7 +23,7 @@ FINDING_VIEWER_EXTRACT=0 python3 finding_viewer.py examples/review.md
 | | |
 |---|---|
 | [Code review of a PR](#code-review) | Triage each finding (post, fix, don't post) with the code beside it, then draft, edit and post the comments as one GitHub review |
-| [Code review of your own code](#your-own-code) | No PR: findings are Fix or Won't fix, and **Send fixes to session** hands them back to Claude |
+| [Code review of your own code](#your-own-code) | No PR, or your own PR: the page opens in fix mode, findings are Fix or Won't fix, and **Send fixes to session** hands them back to Claude. A PR page can switch between post and fix mode |
 | [Review the new commits](#when-the-pr-moves-on) | When the PR gets new commits, Claude re-reviews them and your triage carries over; findings declined on the PR stay dismissed, and an author's "fixed" is checked against the code |
 | [Diff review](#diff-review-read-what-claude-wrote) | `/findings diff`: every change of the branch as one diff, a tree of files with search, threads on lines, change requests sent to the session |
 | [Side chat](#the-side-chat) | Discuss any finding or selection with a read-only Claude that can read the repo, or with a fork of the session that wrote the code |
@@ -84,11 +84,10 @@ doctor`): one PASS / WARN / FAIL line per requirement, the hooks, the command, t
 
 ## Code review
 
-1. Ask for a review and name the viewer: "review PR 123 and open it in the finding viewer". When the turn ends, the
+1. Ask for a review with `/findings` in the prompt: "review PR 123, then /findings". When the turn ends, the
    page opens (or, with `auto_open` off, is built and its address printed). After any review you can also run
    `/findings`. Reviews of a local branch or of the working tree work too, not only PRs.
-2. Decide each finding: `a` post, `f` fix (your own code only: Claude changes the code when you next write in the
-   session, and never posts it), `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
+2. Decide each finding: `a` post, `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
    choose where the comment goes. Your triage saves as you go.
 3. Click **Draft comments**: a fork of the review session, which knows the whole review, writes the comments you chose.
    Edit the drafts, their levels (Must-fix, Should-fix, Suggestion, Nit, Question) and the review type, then
@@ -101,8 +100,10 @@ the Claude sessions behind it, each with a `claude --resume` command to open it 
 
 ### Your own code
 
-With no PR behind it (or on a PR you opened), the review is of your own code: findings are **Fix** or **Won't fix**,
-and **Send fixes to session** hands the Fix ones to the review session at once.
+With no PR behind it (or on a PR you opened), the page opens in **fix mode**: findings are **Fix** or **Won't fix**,
+nothing is posted, and **Send fixes to session** hands the Fix ones to the review session at once. Someone else's PR
+opens in **post mode** (Post or Don't post). The header says which; on a page with a PR, **Switch to post** / **Switch
+to fix** changes it, and your decisions move with it.
 
 ![Triaging the same review on your own code](docs/demo-local.gif)
 
@@ -110,8 +111,12 @@ and **Send fixes to session** hands the Fix ones to the review session at once.
 
 The page checks the PR against the commit it reviewed: up to date, N new commits (and how many findings sit on changed
 code), force-pushed, merged or closed, and whether you already approved it. When the PR has new commits, **Review the N
-new commits** has a fork of the review session read them: each finding comes back fixed in the new commits, changed or
-unchanged, new findings are added, and your triage carries over to the new head. A finding someone on the PR declined
+new commits** has a fork of the review session read them (or, with `rereview.context` set to `fresh`, a new session
+that knows only the findings): each finding comes back fixed in the new commits, changed or unchanged, new findings are
+added, and your triage carries over to the new head. Beside the button, the page says how much context the run will
+read; when it ends, it says what it read and cost. When the new commits change none of the findings' files, **Move the
+lines only (no Claude)** brings the page to the new head for free, without reviewing what they added. A finding
+someone on the PR declined
 (the change will not be made) comes back **dismissed**, marked Don't post, tagged with who declined it and why, and is
 not raised again. Each finding you posted is re-checked with its own thread on the PR and your side chat about it: what
 the author answered is checked against the code, so "done" on a finding that still applies shows as **Author says fixed
@@ -180,10 +185,16 @@ point is in [examples/chat-buttons.json](examples/chat-buttons.json).
 
 - **Reading the findings:** a headless `claude -p` (Sonnet) reads them out of any review format and finds the code
   each one points at: about a minute and $0.10–0.30 per review. Set `extract.enabled` to false to use only the
-  built-in parser (markdown findings with `file:line` anchors). A diff review needs no Claude to build.
+  built-in parser (markdown findings with `file:line` anchors), or `extract.confirm` to true so that only `/findings`,
+  never the Stop hook, starts it. A diff review needs no Claude to build.
 - **Draft comments, Review the new commits** and side chats in fork mode resume a fork of the review session, so each
-  costs about one more turn of that session. A side chat in its default mode starts a small session that knows only the
-  finding, and each later message resumes it.
+  costs about one more turn of that session, whose whole context is read again (and, hours after the review, no
+  longer cached). A side chat in its default mode starts a small session that knows only the finding, and each later
+  message resumes it.
+- **Review the new commits** quotes only what the fork does not already know, stops after 80 turns
+  (`rereview.max_turns`) and can be given a spending limit (`rereview.max_budget_usd`). `rereview.context` set to
+  `fresh` runs it in a new session instead of a fork, which costs far less on a long review. The page says the context
+  a fork will read before you start, and the tokens and cost when it ends. **Move the lines only** costs nothing.
 - **Transcripts it creates** under `~/.claude/projects` (the forks, and a side chat's first session when stopped) are
   deleted once done; `delete_forks` false keeps them.
 - **After posting**, the fork tells the review session what was posted (a `claude -p` that may only use
@@ -205,12 +216,17 @@ prints the file's path and the effective values.
 | `repo_dirs` | `[]` | `FINDING_VIEWER_REPO_DIRS` (`:`-separated) | More folders to look in for a local clone of a PR's repository (as `<folder>/<repo name>`), after the session's own folder and the folder beside the session's repository (its parent folder); else `gh repo clone`. Example: `["~/Repos"]` |
 | `extract.enabled` | `true` | `FINDING_VIEWER_EXTRACT` (`0` = off) | Let Claude read the findings out of any review format |
 | `extract.model` | `sonnet` | `FINDING_VIEWER_EXTRACT_MODEL` | Model that reads them |
+| `extract.confirm` | `false` | `FINDING_VIEWER_EXTRACT_CONFIRM` (`1` = on) | On, the Stop hook never starts Claude to read a review: it says so, and `/findings` reads and opens it. A `ReportFindings` review opens as before, since it needs no Claude |
 | `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review forks |
+| `rereview.context` | `fork` | `FINDING_VIEWER_REREVIEW_CONTEXT` | Where **Review the new commits** runs: `fork`, a fork of the review session, which knows the whole review but reads its whole context again; `fresh`, a new session that knows only the findings, the new commits and the PR's comments: much cheaper on a long review, and it works after the review's transcript is gone |
+| `rereview.max_turns` | `80` | `FINDING_VIEWER_REREVIEW_MAX_TURNS` | Most turns (tool calls and answers) a re-review may take before it stops without an answer; `0` for no limit |
+| `rereview.max_budget_usd` | `0` (none) | `FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD` | Most dollars a re-review may spend, as `claude --max-budget-usd` counts them (on a fork this may include what the review session already spent); `0` for no limit |
 | `chat_model` | Claude's default | `FINDING_VIEWER_CHAT_MODEL` | Side chat model, until you pick one in the page's ⚙ panel |
 | `report_glob` | `.claude/.history/code-reviews/*/*.md` | `FINDING_VIEWER_REPORT_GLOB` | Saved review reports, relative to the repository root |
 | `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR, and for `/findings diff` (else `origin/HEAD`, develop, main, master) |
 | `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the fork transcripts this tool creates |
 | `auto_open` | `true` | `FINDING_VIEWER_AUTO_OPEN` (`0` = off) | Open the browser when the Stop hook has a review's page ready. Off, the hook builds the page and tells where it is; `/findings` and the list page still open pages |
+| `trigger` | `explicit` | `FINDING_VIEWER_TRIGGER` | When the Stop hook opens a page: `explicit`, only when the prompt has `/findings` (or `/a-bit-human-review:findings`) written in it (a prompt that only names the viewer gets a line saying to run `/findings`); `mention`, also when the prompt names the viewer ("finding viewer"); `off`, never, and only `/findings` opens pages |
 
 ## More
 

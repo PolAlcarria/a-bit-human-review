@@ -243,6 +243,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {'error': 'invalid json'})
         if not isinstance(data, dict) or not isinstance(data.get('findings'), dict):
             return self._json(400, {'error': 'expected {"findings": {...}}'})
+        if data.get('mode') not in (None, *store.MODES):
+            # The reviewer's choice of mode (store.review_mode); left out, the page keeps the mode it was built with.
+            return self._json(400, {'error': 'mode must be post or fix'})
         with rereview.guard(name) as running:
             if running:
                 return self._json(423, rereview.locked_error(running))
@@ -443,7 +446,8 @@ def activity(page: str) -> dict:
     if st and sessions.transcript(st.get('fork')):
         rows.append(session('fork', 'Draft fork', st['fork'], st.get('cwd')))
     if rr and sessions.transcript(rr.get('fork')):
-        fork = session('rereview', 'Re-review fork', rr['fork'], rr.get('cwd'))
+        fork = session('rereview', 'Re-review fork' if rr.get('context', 'fork') == 'fork' else 'Re-review session',
+                       rr['fork'], rr.get('cwd'))
         if rr.get('status') != 'reviewing':
             # The re-review ended with its fork open in Claude Code, so the fork was kept.
             fork['note'] = (f"kept: open in {fork['name'] or 'Claude Code'}" if rr['fork'] in lives
@@ -457,33 +461,16 @@ def activity(page: str) -> dict:
     return {'running': running, 'ended': ended, 'sessions': rows, 'rereview': rereview.view(data, rr)}
 
 
-_LOGIN_FAILED = [0.0]  # when the gh login last failed: own_code() does not ask again for 5 minutes
-
-
-def own_code(data: dict) -> bool:
-    """Whether the reviewed code is the reviewer's own, so a finding can be fixed before anyone else reviews it: a review
-    with no PR (a local branch or the working tree), or a PR the gh user opened."""
-    if not data.get('pr'):
-        return True
-    author = data.get('pr_author')
-    if not author or (not freshness.LOGIN and time.time() - _LOGIN_FAILED[0] < 300):
-        return False
-    login = freshness.viewer_login()
-    if not login:
-        _LOGIN_FAILED[0] = time.time()
-    return author == login
-
-
 def handoff(page: str) -> dict:
-    """The review session (its name when open), whether the page can draft and post, whether the code is the reviewer's
-    own, the drafts so far, and the last Send fixes."""
+    """The review session (its name when open), whether the page can draft and post, the page's mode in force, the
+    drafts so far, and the last Send fixes."""
     data = store.page_data(page) or {}
-    _dec, _chat, owner, version = page_state(page)
+    dec, _chat, owner, version = page_state(page)
     owner = owner or data.get('session_id')
     live = sessions.live_session(owner) if owner and sessions.SESSION_RE.match(owner) else None
     session = {'id': owner, 'name': live.get('name'), 'status': live.get('status'),
                'cwd': (live.get('cwd') or '').replace(str(Path.home()), '~', 1) or None} if live else None
-    return {'session': session, 'can_draft': draft.can_draft(data), 'own_code': own_code(data),
+    return {'session': session, 'can_draft': draft.can_draft(data), 'mode': store.review_mode(data, dec),
             'draft': draft.state(page), 'send': send_state(page), 'version': version}
 
 
@@ -493,6 +480,8 @@ def draft_review(page: str) -> tuple[int, dict]:
     if not data:
         return 404, {'error': 'unknown page'}
     dec, chat_state, _owner, version = page_state(page)
+    if store.review_mode(data, dec) != 'post':
+        return 409, {'error': 'This review is in fix mode, where nothing is posted. Switch it to post to draft comments.'}
     fixed = rereview.fixed(data)  # nothing to post for a finding the new commits fixed
     if not any(v.get('status') == 'post' and k not in fixed for k, v in (dec.get('findings') or {}).items()):
         return 400, {'error': 'Mark at least one finding Post first.'}
@@ -510,16 +499,17 @@ def start_rereview(page: str, payload: dict) -> tuple[int, dict]:
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
-    dec, chat_state, _owner, _version = page_state(page)
-    return rereview.start(page, data, summarize(page, dec, chat_state, for_claude=False),
-                          payload.get('discard_drafts') is True)
+    dec, _chat, _owner, _version = page_state(page)
+    return rereview.start(page, data, dec, payload.get('discard_drafts') is True, payload.get('lines_only') is True)
 
 
 def post_drafts(page: str, payload: dict) -> tuple[int, dict]:
-    """Approve & post: post the edited drafts (the worker then calls ``mark_handed``)."""
+    """Approve & post: post the edited drafts (the worker then calls ``mark_handed``). Only in post mode."""
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
+    if store.review_mode(data, page_state(page)[0]) != 'post':
+        return 409, {'error': 'This review is in fix mode, where nothing is posted. Switch it to post to post the drafts.'}
     return draft.post(page, data, payload)
 
 
@@ -529,8 +519,9 @@ def start_send_fixes(page: str) -> tuple[int, dict]:
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
-    if not own_code(data):
-        return 409, {'error': 'Send fixes is for a review of your own code: no PR, or a PR you opened.'}
+    if data.get('kind') != 'diff' and store.review_mode(data, page_state(page)[0]) != 'fix':
+        return 409, {'error': 'This review is in post mode, where findings become PR comments. Switch it to fix to send '
+                              'fixes to the session.'}
     return send_fixes(page, data)
 
 

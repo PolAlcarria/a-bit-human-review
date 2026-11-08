@@ -1,6 +1,6 @@
 # a-bit-human-review: architecture
 
-This file is the map: processes, modules, data model, jobs, routes, state files. As of 2026-10-20.
+This file is the map: processes, modules, data model, jobs, routes, state files. As of 2026-11-08.
 Line numbers are left out on purpose; search for the function names.
 How each feature behaves: [behaviour.md](behaviour.md).
 
@@ -8,7 +8,7 @@ How each feature behaves: [behaviour.md](behaviour.md).
 
 ```
 Claude Code session
-  Stop hook ............ finding_viewer.py hook      acts only on a turn that names the viewer
+  Stop hook ............ finding_viewer.py hook      acts only on a turn that asks for the viewer (trigger setting)
   UserPromptSubmit ..... finding_viewer.py inject    hands the triage back to Claude
   /findings ............ finding_viewer.py open | list | decisions
   setup ................ finding_viewer.py doctor | install | uninstall   (by hand, or through /findings)
@@ -28,13 +28,14 @@ Claude Code session
 ### Data flow
 
 ```
-review turn ends ─► /findings (or Stop hook, if named) ─► detect review ─► render (detached): find repo, Claude reads findings ─► browser
+review turn ends ─► /findings (or Stop hook, if asked) ─► detect review ─► render (detached): find repo, Claude reads findings ─► browser
                                                                         │
-    your next prompt ◄── UserPromptSubmit hook ◄── decisions.json ◄─────┤ Post / Don't post / note / anchor
+    your next prompt ◄── UserPromptSubmit hook ◄── decisions.json ◄─────┤ Post / Don't post or Fix / Won't fix, note, anchor
                                                    chat.json  ◄─────────┤ side chat (claude -p per finding, detached worker)
                                                    freshness.json ◄─────┤ has the PR moved on? (one check at a time)
-                       page rebuilt at the head ◄── rereview.json ◄─────┤ Review the new commits (fork of the review session,
-                       (triage carried over)        (the page's lock)   │ detached worker; every write waits: 423)
+                       page rebuilt at the head ◄── rereview.json ◄─────┤ Review the new commits (fork of the review session or a
+                       (triage carried over)        (the page's lock)   │ fresh one, or the lines only without Claude; detached
+                                                                        │ worker; every write waits: 423)
     GitHub review ◄── gh api ◄── you approve ◄──── drafts.json ◄────────┘ Draft comments (fork of the review session,
                     (detached worker)                                     detached worker)
 ```
@@ -62,17 +63,17 @@ Three layers: the entry point, the feature modules that do the work, and the sha
 | Layer | Module | Holds |
 |---|---|---|
 | entry point | `finding_viewer.py` | The CLI (`hook`, `inject`, `open`, `list`, `decisions`, `serve`, `migrate`, `render`, `job`, `doctor`, `install`, `uninstall`); opening a page in the browser |
-| feature | `hook.py` | The Stop hook: the transcript read into turns, the review and its PR found in the turn ([Detecting a review](behaviour.md#detecting-a-review-the-stop-hook)); owns `state.json`, the fingerprints already shown |
+| feature | `hook.py` | The Stop hook: when it acts (`trigger`: `EXPLICIT_RE`, `MENTION_RE`), the transcript read into turns, the review and its PR found in the turn ([Detecting a review](behaviour.md#detecting-a-review-the-stop-hook)); owns `state.json`, the fingerprints already shown |
 | feature | `parse.py` | The regex parser for markdown reviews |
 | feature | `extract.py` | Claude reading the findings out of any review ([Building a page](behaviour.md#building-a-page-render)) |
-| feature | `render.py` | Building a page: the reviewed repository and commit, the PR's diff, the code at each finding ([Building a page](behaviour.md#building-a-page-render)); owns `out/<page>/review.json` and `out/<page>/page.html`, `out/latest.html`, `out/specs/` and `clones/` |
+| feature | `render.py` | Building a page: the reviewed repository and commit, the PR's diff, the code at each finding, the page's mode (`review_mode`) ([Building a page](behaviour.md#building-a-page-render)); owns `out/<page>/review.json` and `out/<page>/page.html`, `out/latest.html`, `out/specs/` and `clones/` |
 | feature | `triage.py` | The localhost server and its routes ([The server](behaviour.md#the-server)); `cmd_job`, where a detached worker starts; holds `SERVER_VERSION`, a hash of the code |
 | feature | `reviews.py` | The stored pages: the list, the page template assembled from `web/`, archive and delete; owns `out/archived.json` |
 | feature | `handoff.py` | The triage handed back to Claude: the inject hook, `decisions`, the summary ([Hand-back](behaviour.md#hand-back-to-claude-the-inject-hook)); Send fixes to session (`send_fixes`, a detached worker that relays the triage, `run_send`); owns `inject_state.json` and `out/<page>/send.json` |
 | feature | `chat.py` | Side chat: one thread per finding, each reply a detached worker that resumes the thread's Claude session ([Side chat](behaviour.md#side-chat)); owns `chat.json` and `settings.json` |
 | feature | `draft.py` | Draft comments and posting: the fork that drafts the review, the post, the tell ([Draft comments](behaviour.md#draft-comments-and-posting)); owns `drafts.json` |
 | feature | `send.py` | The relay to a live session: `deliver()` relays a message with only SendMessage: resuming the review's fork to tell the review session what was posted, or as a session of its own for Send fixes (deleted afterwards) ([Draft comments](behaviour.md#draft-comments-and-posting)) |
-| feature | `rereview.py` | Re-review of the PR's new commits: the fork, its answer, the update of the page under its lock ([Review the new commits](behaviour.md#review-the-new-commits)); owns `rereview.json` |
+| feature | `rereview.py` | Re-review of the PR's new commits: the session it runs in (`context`: a fork or a fresh one; `_ask_claude`), its prompt and limits (`build_prompt`, `limit_args`), its answer, what it cost (`usage_of`), the lines-only update without Claude, and the update of the page under its lock ([Review the new commits](behaviour.md#review-the-new-commits)); owns `rereview.json` |
 | feature | `freshness.py` | Whether the reviewed commit is still what the PR holds: the cached check and where a line went ([Freshness](behaviour.md#freshness)); owns `freshness.json` |
 | feature | `setup_cmds.py` | `doctor`, `install`, `uninstall`: the checks, and the hook entries and slash command for a copy that is not a plugin |
 | diff page | `web/diff.html`, `web/diff.css`, `web/diff.js` | The diff review (`kind: "diff"`): changed files and threads on the left, the diff in the middle, the chat on the right. Uses `shared.css` and `viewer.css` for the layout and the chat; `reviews.diff_template()` inlines them, and `reviews.fill_template` picks it by `data['kind']` ([Diff review](behaviour.md#diff-review)) |
@@ -83,11 +84,11 @@ Three layers: the entry point, the feature modules that do the work, and the sha
 | plugin | `.claude-plugin/plugin.json`, `marketplace.json` | The plugin's name (`a-bit-human-review`), version and author; the repo is its own marketplace (source `./`) |
 | plugin | `hooks/hooks.json` | The Stop hook (`finding_viewer.py hook`, 15 s) and the UserPromptSubmit hook (`inject`, 10 s) |
 | plugin | `skills/findings/SKILL.md` | The `/a-bit-human-review:findings` command; `install` derives `~/.claude/commands/findings.md` from it |
-| shared | `config.py` | Settings, read from `config.json` in the data folder; each key is overridable by its `FINDING_VIEWER_*` variable |
+| shared | `config.py` | Settings, read from `config.json` in the data folder; each key is overridable by its `FINDING_VIEWER_*` variable; keys that take one of a few words (`CHOICES`) and whole numbers in a range (`RANGES`) |
 | shared | `paths.py` | Where the code and the data live; `log` appends to `viewer.log`; the one-time move of an old checkout's data, and `migrate_layout`, the one-time move of flat pages into a folder each, both under `.migrate.lock` |
 | shared | `severity.py` | The severities, their id letters and labels, the words reviews use for them |
 | shared | `store.py` | Review data on disk: each page's folder `out/<page>/` (`page_dir`, `pages`, `exists`), `page_data` (reads `review.json`, the one way review data is read), the triage and chat files (`decisions.json`, `chat.json`), the checkout of the reviewed commit (`worktrees/`), `default_base` and `git` |
-| shared | `sessions.py` | Claude Code's session files: transcripts, open sessions, deleting a fork |
+| shared | `sessions.py` | Claude Code's session files: transcripts, open sessions, deleting a fork, the context a session's last answer held (`context_tokens`) |
 | shared | `claude_cli.py` | Running `claude` as a child: the binary, its environment and flags, a JSON call, a stream-json reader |
 | shared | `jobs.py` | Detached workers: spawn, file locks, kill, one Check again at a time; owns `out/specs/jobs/` and the lock sidecars (`out/<page>/locks/chat.lock`, `drafts.lock`, `rereview.lock`, `send.lock`) |
 | shared | `jobstate.py` | The job state machine that drafting, re-review, side chat and Send fixes share ([Background jobs](behaviour.md#background-jobs)) |
@@ -99,7 +100,7 @@ entry     finding_viewer ─► hook, render, handoff, triage, setup_cmds   (and
 
 features  hook ─► extract, parse, render, triage        setup_cmds ─► triage
           triage ─► chat, draft, freshness, handoff, render, rereview, reviews
-          handoff ─► draft, freshness, rereview, send    render ─► extract, parse, reviews
+          handoff ─► draft, freshness, rereview, send    render ─► extract, freshness, parse, reviews
           reviews ─► chat, draft, freshness, rereview    rereview ─► chat, draft, extract, freshness
           draft ─► chat, send                            send ─► chat
           chat, extract, freshness, parse ─► no feature
@@ -132,14 +133,16 @@ an older file can lack some of them.
 
 - **Page data**: `out/<page>/review.json`, from `render.build_page()`. `page.html` beside it carries the same JSON in
   its `<script type="application/json" id="data">` block. Top level: `page`, `title`, `subtitle`, `generated`,
-  `session_id`, `review_session`, `pr`, `pr_author`, `base`, `ref`, `blob_ref`, `ref_label`, `merge_base`, `github`,
+  `session_id`, `review_session`, `pr`, `pr_author`, `mode` (`post` or `fix`, see `store.review_mode`), `base`, `ref`, `blob_ref`, `ref_label`, `merge_base`, `github`,
   `repo_root`, `repo_name`, `notes`, `findings`, `files` (by path: `lines`, `lang`, `added`, `removed`, `hunks`,
   `changed`, `truncated`), and `rereviewed` after a re-review. A finding: `id`, `severity`, `title`, `body`,
   `recurring`, `meta`, `locations` (`raw`, `path`, `start`, `end`, `ambiguous`), and `rereview` (`status`, `at`, `why`,
   `author_said`, `thread`: `who`, `at`, `body`, `url`) after a re-review. A `rereviewed` entry: `from`, `to`, `at`,
-  `commits`, `rewritten`, `counts`, `discarded_drafts`.
+  `commits`, `rewritten`, `counts`, `discarded_drafts`, `usage` (`context`, `tokens_read`, `cached`, `output_tokens`,
+  `cost_usd`).
 - **`decisions.json`** (`PUT /api/decisions/<page>`, `triage.py`): `page`, `title`, `subtitle`, `session_id`,
-  `pr`, `repo_root`, `updated` (the tab's clock), `rereviews` (how many re-reviews the tab saw), `saved_at` (set by the
+  `pr`, `repo_root`, `mode` (the reviewer's choice, `post` or `fix`; left out, the page's built mode holds), `updated`
+  (the tab's clock), `rereviews` (how many re-reviews the tab saw), `saved_at` (set by the
   server), `findings`. Each finding id maps to `status` (`post`, `fix`, `skip` or null), `note`, `mode` (`note` or
   `comment`), `title`, `severity`, `anchor` (`path`, `line`, `in_diff`), `body`, and after a re-review `recheck` (the
   head it changed at) and `anchor_reset` (`path`, `line`, `at`).
@@ -158,7 +161,8 @@ an older file can lack some of them.
 - **`send.json`** (`handoff.py`): `status` (`sending`, `sent`, `failed`), `job`, `pid`, `started`, `ended`, `error`,
   `session` (the review session's id), `to` (its name), `cwd`, `version` (the triage version sent).
 - **`rereview.json`** (`rereview.py`): `status` (`reviewing`, `done`, `failed`), `started`, `ended`, `job`,
-  `pid`, `fork`, `review_session`, `cwd`, `from`, `to`, `commits`, `rewritten`, `discard_drafts`, `steps`, `error`,
+  `pid`, `fork` (the session the run used, fork or fresh), `review_session`, `cwd`, `context` (`fork`, `fresh`, or
+  `none` for lines only), `lines_only`, `from`, `to`, `commits`, `rewritten`, `discard_drafts`, `steps`, `error`,
   `stopped`, `stopping`, `committing` (the steps still to take while the update runs), and `result` (`to`, `counts`,
   `message`).
 - **`freshness.json`** (`freshness.py`): `status` (`current`, `behind`, `rewritten`, `unknown`), `ref` (the
@@ -204,22 +208,22 @@ running   the worker writes progress only while the state still carries its job 
 | Route | Purpose |
 |---|---|
 | `GET /` | The list of all reviews (`web/index.html`) |
-| `GET /api/reviews` | Every stored page with triage counts, chats and the last freshness check |
+| `GET /api/reviews` | Every stored page with its mode, triage counts (in that mode), chats and the last freshness check |
 | `PUT /api/archive/<page>` | `{"archived": true\|false}`: archive the page's card (every render in its group), or bring it back |
 | `DELETE /api/reviews/<page>` | Delete a page with its triage, chats, freshness cache and spec (409 while a job runs on it) |
 | `GET /<page>.html` | A review page |
-| `GET` / `PUT /api/decisions/<page>` | Load / save triage |
+| `GET` / `PUT /api/decisions/<page>` | Load / save triage; `mode` (`post` or `fix`) is the reviewer's choice, any other word is 400 |
 | `GET /api/chat/<page>` | Chat threads (marks dead workers as failed) |
 | `POST /api/chat/<page>/<finding-id>` | Send a chat message (202, answered by a detached worker) |
 | `GET /api/freshness/<page>[?force=1]` | Has the PR moved past the reviewed commit (one check per page at a time; others wait for it) |
-| `GET /api/activity/<page>` | The Running panel: jobs running and ended in the last 10 minutes, Claude sessions to resume; and the re-review: whether the page can run one (and why not), and the last one's state, which locks the page |
+| `GET /api/activity/<page>` | The Running panel: jobs running and ended in the last 10 minutes, Claude sessions to resume; and the re-review: whether the page can run one (and why not), its context and, for a fork, how many tokens it reads again (`context_tokens`), whether the lines can move without Claude (`lines_ok`), and the last one's state, which locks the page |
 | `POST /api/stop/<page>/draft`, `POST /api/stop/<page>/rereview`, `POST /api/stop/<page>/chat/<finding-id>` | Stop drafting, a re-review or a side chat reply |
-| `GET /api/handoff/<page>` | The review session (name when open), whether the page can draft, whether the code is yours (`own_code`: no PR, or a PR the `gh` user opened), the drafts so far, and the last Send fixes (`send`) |
-| `POST /api/draft/<page>` | Draft comments: a fork of the review session drafts the review (202; see `draft.py`) |
-| `POST /api/draft/<page>/post` | Post the edited drafts as one GitHub review (202), then tell the review session |
+| `GET /api/handoff/<page>` | The review session (name when open), whether the page can draft, the page's mode in force (`mode`: `post` or `fix`, `store.review_mode`), the drafts so far, and the last Send fixes (`send`) |
+| `POST /api/draft/<page>` | Draft comments: a fork of the review session drafts the review (202; see `draft.py`); 409 in fix mode |
+| `POST /api/draft/<page>/post` | Post the edited drafts as one GitHub review (202), then tell the review session; 409 in fix mode |
 | `DELETE /api/draft/<page>` | Discard the drafts and delete the fork (409 while drafting, posting or telling) |
-| `POST /api/rereview/<page>` | `{"discard_drafts": true\|false}`: review the PR's new commits in a fork of the review session (202; see [Review the new commits](behaviour.md#review-the-new-commits)). 409 while another job runs on the page, and when unposted drafts are not confirmed for discarding (`drafts: true` in the answer) |
-| `POST /api/send-fixes/<page>` | Send fixes to session: relay the triage to the open review session now (202, see `handoff.send_fixes`); 409 when the code is not yours, the review session is not open or a send is still running, 400 with no Fix finding, 500 when the worker does not start (the answer is the failed state), 404 for an unknown page |
+| `POST /api/rereview/<page>` | `{"discard_drafts": true\|false, "lines_only": true\|false}`: review the PR's new commits in a fork of the review session or a fresh one (`rereview.context`), or with `lines_only` move the findings to the new head without Claude (202; see [Review the new commits](behaviour.md#review-the-new-commits)). 409 while another job runs on the page, when unposted drafts are not confirmed for discarding (`drafts: true` in the answer), and for `lines_only` when a finding's file changed |
+| `POST /api/send-fixes/<page>` | Send fixes to session: relay the triage to the open review session now (202, see `handoff.send_fixes`); 409 in post mode, when the review session is not open or a send is still running, 400 with no Fix finding, 500 when the worker does not start (the answer is the failed state), 404 for an unknown page |
 | `GET` / `PUT /api/settings` | Chat model and context mode |
 | `GET /api/ping`, `POST /api/shutdown` | Version check, restart |
 

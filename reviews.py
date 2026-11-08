@@ -151,6 +151,9 @@ def list_reviews() -> list[dict]:
         decided, fixed = dec.get('findings') or {}, rereview.fixed(data)
         # A finding the new commits fixed is not counted: there is nothing left to decide or post for it.
         statuses = [(decided.get(f['id']) or {}).get('status') for f in data.get('findings', []) if f['id'] not in fixed]
+        mode = store.review_mode(data, dec) if data.get('kind') != 'diff' else None
+        # As on the page: a status in the other mode's word counts as undecided.
+        statuses = [None if s == {'fix': 'post', 'post': 'fix'}.get(mode) else s for s in statuses]
         if data.get('kind') == 'diff':
             # No findings of its own: the reviewer's threads (user records of the triage) are what there is to count.
             statuses = [v.get('status') for v in decided.values() if isinstance(v, dict) and v.get('user') is True]
@@ -160,7 +163,7 @@ def list_reviews() -> list[dict]:
         rows.append({
             'page': page, 'kind': data.get('kind') or 'review', 'title': data['title'], 'subtitle': data.get('subtitle', ''), 'repo': repo, 'pr': pr,
             'pr_url': f"{data['github']}/pull/{pr}" if pr and data.get('github') else None,
-            'pr_author': data.get('pr_author'),
+            'pr_author': data.get('pr_author'), 'mode': mode,
             'group': group_key(data), 'archived': page in archived,
             'created': _created(page), 'reviewed': (ref or '')[:8], 'checkable': bool(ref),
             'findings': len(statuses), 'post': statuses.count('post'), 'skip': statuses.count('skip'),

@@ -163,6 +163,31 @@ class ConfigLoadTest(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn('auto_open', problems[0])
 
+    def test_rereview_limits_take_numbers_in_their_range(self):
+        values, _, problems = config.load(write_config('{"rereview": {"max_turns": 30, "max_budget_usd": 2}}'), {})
+        self.assertEqual((values['rereview.max_turns'], values['rereview.max_budget_usd'], problems), (30, 2, []))
+        values, _, problems = config.load(write_config('{"rereview": {"max_turns": -1, "max_budget_usd": "lots"}}'),
+                                          {'FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD': 'x'})
+        self.assertEqual((values['rereview.max_turns'], values['rereview.max_budget_usd']), (80, 0.0))
+        self.assertEqual(len(problems), 3)
+        self.assertIn('expected a whole number from 0 to 1000', problems[0])
+
+    def test_trigger_defaults_to_explicit(self):
+        values, _, _ = config.load(missing_config(), {})
+        self.assertEqual(values['trigger'], 'explicit')
+
+    def test_trigger_from_the_file_and_the_variable(self):
+        values, _, problems = config.load(write_config('{"trigger": "explicit"}'), {})
+        self.assertEqual((values['trigger'], problems), ('explicit', []))
+        values, sources, _ = config.load(write_config('{"trigger": "explicit"}'), {'FINDING_VIEWER_TRIGGER': ' OFF '})
+        self.assertEqual((values['trigger'], sources['trigger']), ('off', 'FINDING_VIEWER_TRIGGER'))
+
+    def test_a_trigger_outside_the_choices_is_one_problem(self):
+        values, _, problems = config.load(write_config('{"trigger": "always"}'), {'FINDING_VIEWER_TRIGGER': 'never'})
+        self.assertEqual(values['trigger'], 'explicit')
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(all('expected one of explicit, mention, off' in p for p in problems))
+
 
 class NonHttpPortTest(unittest.TestCase):
     """Something that is not the viewer holds the port: the ping reads as no server and does not raise."""

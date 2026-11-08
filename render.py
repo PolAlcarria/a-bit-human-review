@@ -15,6 +15,7 @@ from pathlib import Path
 
 import config
 import extract
+import freshness
 import parse
 import paths
 import reviews
@@ -278,6 +279,15 @@ def write_page(out: Path, data: dict) -> None:
         tmp.replace(path)
 
 
+def review_mode(pr: int | None, pr_author: str | None) -> str:
+    """The page's mode when it is built: fix for the reviewer's own code (no PR, or a PR the gh user opened), where
+    findings are fixed before anyone else reviews them; post for someone else's PR, where they become comments. When
+    gh cannot say who you are, a PR counts as someone else's."""
+    if not pr:
+        return 'fix'
+    return 'fix' if pr_author and pr_author == freshness.viewer_login() else 'post'
+
+
 def build_page(spec: dict) -> tuple[Path, dict] | None:
     """The page's path and review data: the repo, the code to show, the findings and their files. None when Claude
     found no findings in the text and the parser found none either. A spec of kind ``diff`` builds a diff review
@@ -384,6 +394,8 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
     out = Path(spec.get('out') or new_out_path(spec))
     data = {
         'page': out.parent.name, 'session_id': spec.get('session_id'), 'pr': spec.get('pr'), 'pr_author': pr_author, 'ref': ref,
+        # Post or fix, decided once here (a re-review keeps it); the reviewer can switch it on the page (decisions.json).
+        'mode': spec.get('mode') if spec.get('mode') in store.MODES else review_mode(spec.get('pr'), pr_author),
         'review_session': spec.get('review_session') or spec.get('session_id'),
         # The PR's head branch (head_branch, cross_repo), which a worktree of the page checks out (store.review_checkout).
         # Left out when gh failed, so the checkout looks it up again.

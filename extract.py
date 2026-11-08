@@ -5,7 +5,8 @@ asks Claude for the findings as JSON (`--json-schema`), so tables, prose and new
 read the reviewed code, which lets it complete shortened paths and find the line of a finding that names a file or a
 symbol but no line. It is told not to review anything itself.
 
-It runs only on a review you asked the viewer for (``/findings``, or a prompt that names it), never on a guess.
+It runs only on a review you asked the viewer for (``/findings``, or a prompt that names it), never on a guess. With
+``extract.confirm`` on, the Stop hook does not start it at all: it says so, and ``/findings`` starts it.
 
 The ``extract.enabled`` setting turns this off (the regex parser is used alone); ``extract.model`` picks the extraction
 model (default ``sonnet``). See config.py.

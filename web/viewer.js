@@ -67,24 +67,30 @@ D.findings.forEach((f, fi) => f.locations.forEach(loc => {
 /* ---------- triage state ---------- */
 
 const tri = id => (T.findings[id] ??= { status: null, note: '', mode: 'note', anchor: null });
-// A review with no PR is your own code before a PR exists (local mode): nothing is posted, so a finding is Fix or
-// Won't fix (stored as skip). A finding stored as Post there, from before local mode, counts as undecided; the stored
-// value stays until you pick again.
-const localMode = () => !D.pr;
+// The page's mode, as store.review_mode gives it: your choice on the page (T.mode), else the mode the page was built
+// with (D.mode), else, for a page built before modes, fix with no PR or a finding marked Fix. Fix mode (your own code):
+// nothing is posted, so a finding is Fix or Won't fix (stored as skip). Post mode (someone else's PR): Post or Don't
+// post. A finding stored with the other mode's word counts as undecided; the stored value stays until you pick again.
+const MODES = ['post', 'fix'];
+function pageMode() {
+  if (!D.pr) return 'fix';  // nothing to post to
+  if (MODES.includes(T.mode)) return T.mode;
+  if (MODES.includes(D.mode)) return D.mode;
+  return Object.values(T.findings).some(t => t?.status === 'fix') ? 'fix' : 'post';
+}
+const fixMode = () => pageMode() === 'fix';
 const storedStatus = f => T.findings[f.id]?.status || null;
-const statusOf = f => { const s = storedStatus(f); return s === 'post' && localMode() ? null : s; };
+const statusOf = f => { const s = storedStatus(f); return s === (fixMode() ? 'post' : 'fix') ? null : s; };
 // The triage button that keeps the focus when the one that had it is rebuilt away.
-const firstTri = () => localMode() ? '[data-tri="fix"]' : '[data-tri="post"]';
+const firstTri = () => fixMode() ? '[data-tri="fix"]' : '[data-tri="post"]';
 const noteOf = f => (T.findings[f.id]?.note || '').trim();
 // What the text box holds: a note Claude follows when it writes the comment, or the comment itself, posted as written.
-const modeOf = f => f && !localMode() && T.findings[f.id]?.mode === 'comment' ? 'comment' : 'note';
+const modeOf = f => f && !fixMode() && T.findings[f.id]?.mode === 'comment' ? 'comment' : 'note';
 const ownComment = () => modeOf(D.findings[current]) === 'comment' && !fixing();
 // A finding the new commits fixed (rereview.py): it stays listed with its triage, but is not open and is not posted.
 const isFixed = f => f?.rereview?.status === 'fixed';
-// Your own code (no PR, or a PR you opened; /api/handoff says which): a finding can be fixed in the code before anyone
-// else reviews it, so Fix joins Post and Don't post. A finding already marked Fix keeps its button.
-const ownCode = () => !D.pr || !!HANDOFF?.own_code;
-const canFix = f => ownCode() || (!!f && statusOf(f) === 'fix');
+// Drafting and posting are for post mode only (the server refuses them in fix mode).
+const canDraft = () => !!HANDOFF?.can_draft && !fixMode();
 // A Fix finding's note is always a note for Claude: there is no comment to write.
 const fixing = () => { const f = D.findings[current]; return !!f && statusOf(f) === 'fix'; };
 
@@ -131,7 +137,7 @@ function payload() {
   }
   // `rereviews` lets the server refuse a save from a tab that still shows the findings before a re-review.
   return { page: D.page, title: D.title, subtitle: D.subtitle, session_id: D.session_id, pr: D.pr, repo_root: D.repo_root,
-    updated: T.updated, rereviews: (D.rereviewed || []).length, findings };
+    ...(MODES.includes(T.mode) ? { mode: T.mode } : {}), updated: T.updated, rereviews: (D.rereviewed || []).length, findings };
 }
 
 function setSaved(text, warn = false) {
@@ -196,7 +202,7 @@ async function loadState() {
       const r = await fetch('/api/decisions/' + encodeURIComponent(D.page), { cache: 'no-store' });
       const body = r.ok ? await r.json() : null;
       if (body && body.findings) {
-        remote = { updated: body.updated, findings: {} };
+        remote = { updated: body.updated, findings: {}, ...(MODES.includes(body.mode) ? { mode: body.mode } : {}) };
         for (const [id, v] of Object.entries(body.findings)) {
           remote.findings[id] = { status: v.status || null, note: v.note || '', mode: v.mode === 'comment' ? 'comment' : 'note', anchor: v.anchor ? { path: v.anchor.path, line: v.anchor.line } : null,
             ...(v.recheck ? { recheck: v.recheck } : {}), ...(v.anchor_reset ? { anchor_reset: v.anchor_reset } : {}) };
@@ -254,7 +260,7 @@ function renderHeader() {
   document.getElementById('subtitle').textContent = D.subtitle;
   const meta = [];
   if (D.pr && D.github) meta.push(`<span><a href="${esc(D.github)}/pull/${esc(D.pr)}" target="_blank" rel="noopener">PR #${esc(D.pr)} on GitHub ↗</a></span>`);
-  else if (localMode()) meta.push('<span><b>Local review</b> · no PR</span>');
+  meta.push('<span id="mode-meta"></span>');
   if (D.pr_author) meta.push(`<span>Opened by <b>${esc(D.pr_author)}</b></span>`);
   meta.push(`<span>Code: <b>${esc(D.ref_label)}</b></span>`);
   const again = (D.rereviewed || []).at(-1);
@@ -263,6 +269,7 @@ function renderHeader() {
   meta.push(`<span>Generated ${esc(D.generated)}</span>`);
   meta.push('<span id="fresh-meta"></span>');
   document.getElementById('meta').innerHTML = meta.join('');
+  renderMode();
   if (D.notes.length) {
     const n = document.getElementById('notes');
     n.hidden = false;
@@ -270,20 +277,54 @@ function renderHeader() {
   }
 }
 
+// The mode in the header, with the switch: a page with a PR can be either; one with no PR has nothing to post to.
+function renderMode() {
+  const el = document.getElementById('mode-meta');
+  if (!el) return;
+  const fix = fixMode();
+  const what = fix ? (D.pr ? 'your code: fix it, nothing is posted' : 'Local review · no PR: fix it, nothing is posted')
+    : 'findings become comments on the PR';
+  const to = fix ? 'post' : 'fix';
+  const sw = D.pr && SERVED
+    ? ` <button type="button" class="tb small mode-switch" id="mode-switch" data-to="${to}"${lockAttr()}>Switch to ${to}</button>` : '';
+  rerender(el, `<b>${fix ? 'Fix mode' : 'Post mode'}</b> · ${esc(what)}${sw}`, ['id']);
+}
+
+// Switch the page's mode: a decision moves with it (Post ↔ Fix), Won't fix / Don't post and undecided stay.
+function switchMode(to) {
+  if (locked()) return lockedSay();
+  if (!MODES.includes(to) || pageMode() === to || !D.pr) return;
+  const from = pageMode();
+  let moved = 0;
+  for (const t of Object.values(T.findings)) {
+    if (t?.status === from) { t.status = to; moved++; }
+  }
+  T.mode = to;
+  if (statusFilter === from) statusFilter = to;
+  persist();
+  renderMode();
+  updateToolbar();
+  renderList();
+  renderDetail();
+  renderKeys();
+  const word = m => m === 'fix' ? 'Fix' : 'Post';
+  announce(`Switched to ${to} mode` + (moved ? `: ${moved} ${word(from)} decision${moved === 1 ? ' is' : 's are'} now ${word(to)}.` : '.'));
+  document.getElementById('mode-switch')?.focus();
+}
+
 function updateToolbar() {
   const c = counts(), done = doneState();
   // Both outcomes count. On a done PR the Post count says what you marked, not where it goes; with no PR there is
   // no PR to go to.
   const posts = done ? `${c.post} marked to post` : D.pr ? phrase(c.post, 'goes to the PR', 'go to the PR') : `${c.post} to post`;
-  const fixes = ownCode() || c.fix ? `<b class="fix">${c.fix} to fix</b> · ` : '';
-  const tally = localMode() ? `<b class="fix">${c.fix} to fix</b> · <b class="keep">${c.skip} won't fix</b>`
-    : `<b>${posts}</b> · ${fixes}<b class="keep">${phrase(c.skip, 'stays here', 'stay here')}</b>`;
+  const tally = fixMode() ? `<b class="fix">${c.fix} to fix</b> · <b class="keep">${c.skip} won't fix</b>`
+    : `<b>${posts}</b> · <b class="keep">${phrase(c.skip, 'stays here', 'stay here')}</b>`;
   document.getElementById('progress').innerHTML =
     `<div class="bar"><span style="width:${c.total ? (100 * c.decided / c.total) : 0}%"></span></div>
      <span>${c.decided}/${c.total} decided · ${tally}${c.fixed ? ` · ${c.fixed} fixed in the new commits` : ''}</span>`;
-  const segs = localMode()
+  const segs = fixMode()
     ? [['all', 'All', D.findings.length], ['open', 'To decide', c.open], ['fix', 'Fix', c.fix], ['skip', "Won't fix", c.skip]]
-    : [['all', 'All', D.findings.length], ['open', 'To decide', c.open], ['post', 'Post', c.post], ...(ownCode() || c.fix || statusFilter === 'fix' ? [['fix', 'Fix', c.fix]] : []), ['skip', "Don't post", c.skip]];
+    : [['all', 'All', D.findings.length], ['open', 'To decide', c.open], ['post', 'Post', c.post], ['skip', "Don't post", c.skip]];
   rerender(document.getElementById('statusFilter'), segs.map(([k, label, n]) =>
     `<button data-status="${k}" class="${statusFilter === k ? 'on' : ''}">${label} ${n}</button>`).join(''), ['data-status']);
   const sev = {};
@@ -291,8 +332,8 @@ function updateToolbar() {
   rerender(document.getElementById('filters'), ORDER.filter(s => sev[s]).map(s =>
     `<button class="chip sev-${s}${hiddenSev.has(s) ? ' off' : ''}" data-sev="${s}"><span class="dot"></span>${LABEL[s]} ${sev[s]}</button>`).join(''), ['data-sev']);
   const btn = document.getElementById('draft');
-  btn.hidden = !HANDOFF?.can_draft;
-  if (HANDOFF?.can_draft) {
+  btn.hidden = !canDraft();
+  if (canDraft()) {
     const X = DS();
     btn.textContent = { drafting: 'Drafting…', ready: 'Review drafts', posting: 'Posting…', posted: '✓ Posted' }[X?.status]
       || (X?.review ? 'Review drafts' : 'Draft comments');
@@ -308,7 +349,7 @@ function updateToolbar() {
   }
   // The toolbar label changes silently, so say each draft state once. A failure already shows as an alert in the
   // open dialog; it is said here only when the dialog is closed.
-  const st = HANDOFF?.can_draft ? DS()?.status || '' : '';
+  const st = canDraft() ? DS()?.status || '' : '';
   if (lastDraftStatus !== undefined && st !== lastDraftStatus) {
     // A stop was already said by the Running panel, where it was made.
     const say = DRAFT_SAY[st] || (st === 'failed' && !DS().stopped && !document.getElementById('drafts').open ? DS().error || 'The draft failed.' : '');
@@ -410,7 +451,7 @@ function updateSendButton() {
   const sent = current && X.status === 'sent';
   const error = sendError || (current && X.status === 'failed' ? X.error || `The fixes were not sent. ${SEND_HINT}` : '');
   // Your own code only, with something to fix; a send that runs stays on show.
-  btn.hidden = !SERVED || !ownCode() || !(counts().fix || busy);
+  btn.hidden = !SERVED || !fixMode() || !(counts().fix || busy);
   btn.textContent = busy ? 'Sending…' : sent ? '✓ Sent' : 'Send fixes to session';
   btn.title = busy ? `Sending your triage to ${X?.to || to}.`
     : sent ? `Sent to ${X.to || to}. Change the triage to send it again.`
@@ -535,13 +576,11 @@ function updatePostButton() {
 
 async function loadHandoff() {
   if (!SERVED) return;
-  const own = ownCode();
   try {
     const r = await fetch('/api/handoff/' + encodeURIComponent(D.page), { cache: 'no-store' });
     if (r.ok) HANDOFF = await r.json();
   } catch (e) { /* server off: keep the last answer */ }
   updateToolbar();
-  if (ownCode() !== own) renderKeys();
   renderDrafts();
   const saved = document.getElementById('saved');
   if (saved && /^Saved · /.test(saved.textContent)) setSaved(savedText());
@@ -660,6 +699,19 @@ async function loadActivity() {
 
 /* ---------- Review the new commits: a fork of the review session re-checks the findings at the new head (rereview.py) ---------- */
 
+// What starting a re-review costs, before you start it (rereview.view): a fork reads the review session's whole
+// context again; a fresh session reads only the findings, the new commits and the PR's comments.
+function rrCost(R) {
+  if (R.context === 'fresh') return 'New session: reads only the findings and the new commits.';
+  return R.context_tokens ? `Reads the review session again: about ${Math.round(R.context_tokens / 1000)}k tokens of context.` : '';
+}
+function rrStartTitle(R) {
+  return (R.context === 'fresh'
+    ? 'A new Claude session reviews the new commits and re-checks each finding at the new head'
+    : 'A fork of the review session reviews the new commits and re-checks each finding at the new head')
+    + '; this page then shows the new head with your triage carried over. rereview.context in config.json picks fork or fresh.';
+}
+
 // ACT.rereview says whether the page can review new commits (and why not) and how the last re-review went. While one
 // runs the page is locked: the server refuses every write (423), and each control that writes says why and does
 // nothing, keeping focus (aria-disabled, not disabled). Reading, filters, Check again and Sessions stay.
@@ -704,7 +756,7 @@ function renderRereview() {
   let html = '', cls = '';
   if (locked()) {
     const what = R.rewritten ? 'the new head' : `the ${phrase(R.commits || 0, 'new commit', 'new commits')}`;
-    html = `<span class="pulse" aria-hidden="true"></span><b>Reviewing ${esc(what)}…</b>
+    html = `<span class="pulse" aria-hidden="true"></span><b>${R.lines_only ? 'Moving the findings to the new head…' : `Reviewing ${esc(what)}…`}</b>
       <span class="jt" data-started="${esc(R.started)}" aria-hidden="true">${clock(Date.now() / 1000 - R.started)}</span>
       <span class="why">Triage, notes, drafts and the chat wait until it ends.</span>
       <button data-rr="stop"${R.stopping ? ' aria-disabled="true"' : ''}>${R.stopping ? 'Stopping…' : 'Stop'}<span class="sr-only"> the review of the new commits</span></button>`;
@@ -772,6 +824,7 @@ function applyLock() {
   // Unlocked and unchanged (it failed or was stopped): the save the lock refused goes now.
   else if (saveRefused) pushRemote();
   // Rebuild what carries the lock in its markup; rerender keeps focus on the same control.
+  renderMode();
   updateToolbar();
   const f = D.findings[current];
   if (f && document.getElementById('triage')) {
@@ -783,8 +836,12 @@ function applyLock() {
 // Unposted drafts point at the old lines: starting asks first, in the banner, and they go only if the review succeeds.
 const unpostedDrafts = () => { const X = DS(); return !!X?.review && ['ready', 'failed'].includes(X.status); };
 
-async function startRereview(discard) {
+// linesOnly: move the findings to the new head without Claude (only offered when no finding's file changed). The
+// choice is kept while the drafts question is asked.
+let rrLinesOnly = false;
+async function startRereview(discard, linesOnly = rrLinesOnly) {
   if (rrStarting || locked()) return;
+  rrLinesOnly = !!linesOnly;
   if (!discard && unpostedDrafts()) { rrConfirm = true; renderFreshness(); document.getElementById('rr-go')?.focus(); return; }
   rrStarting = true;
   // The fork gets the saved triage, so save any pending change first (as startDraft does).
@@ -792,7 +849,7 @@ async function startRereview(discard) {
   let error = '', ask = false;
   try {
     const r = await fetch('/api/rereview/' + encodeURIComponent(D.page), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Finding-Viewer': '1' }, body: JSON.stringify({ discard_drafts: !!discard }),
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Finding-Viewer': '1' }, body: JSON.stringify({ discard_drafts: !!discard, lines_only: rrLinesOnly }),
     });
     const body = await r.json().catch(() => ({}));
     ask = r.status === 409 && body.drafts;  // drafts appeared meanwhile (another tab): ask here too
@@ -802,6 +859,7 @@ async function startRereview(discard) {
   }
   rrStarting = false;
   rrConfirm = ask;
+  if (!ask) rrLinesOnly = false;
   rrNote = error ? { kind: 'bad', text: `Not started: ${error}` } : null;
   if (error) announce(rrNote.text);
   await loadHandoff();
@@ -813,6 +871,7 @@ async function startRereview(discard) {
 
 function cancelRereview() {
   rrConfirm = false;
+  rrLinesOnly = false;
   renderFreshness();
   document.getElementById('rr-start')?.focus();
 }
@@ -902,7 +961,7 @@ const groupsOf = () => [...ORDER.map(s => [`sev-${s}`, LABEL[s], f => f.severity
 function renderList() {
   const nav = document.getElementById('list');
   const top = nav.scrollTop, done = doneState();
-  const skipSays = localMode() ? "Won't fix" : 'Stays here';
+  const skipSays = fixMode() ? "Won't fix" : 'Stays here';
   let html = '';
   for (const [cls, title, has] of groupsOf()) {
     const items = D.findings.map((f, i) => [f, i]).filter(([f]) => has(f) && visible(f));
@@ -942,7 +1001,7 @@ function renderList() {
 
 // The key hint inside a triage button; none while single-key shortcuts are off.
 const hint = k => shortcutsOn() ? ` <kbd aria-hidden="true">${k}</kbd>` : '';
-const notePlaceholder = () => (fixing() || localMode() ? 'How to fix it, or what to leave alone. Claude follows it when it changes the code.  '
+const notePlaceholder = () => (fixing() || fixMode() ? 'How to fix it, or what to leave alone. Claude follows it when it changes the code.  '
   : ownComment()
   ? 'The comment exactly as it should appear on the PR (markdown). Claude does not reword it.  '
   : 'Your thoughts on this finding: agree, disagree, what to change or add in the comment. Claude reads this when it writes the comment.  ')
@@ -951,7 +1010,7 @@ const noteLabel = () => fixing() ? 'Your note on the fix' : ownComment() ? 'Your
 const useLabel = () => ownComment() ? 'Use as my comment' : 'Use as my note';
 
 function noteModeHtml(f) {
-  if (statusOf(f) === 'fix' || localMode()) return '<span>Claude follows it when it fixes the code. Nothing is posted.</span>';
+  if (statusOf(f) === 'fix' || fixMode()) return '<span>Claude follows it when it fixes the code. Nothing is posted.</span>';
   const m = modeOf(f);
   const b = (k, label) => `<button type="button" data-mode="${k}"${m === k ? ' class="on"' : ''} aria-pressed="${m === k}"${lockAttr()}>${label}</button>`;
   return `<span class="seg" role="group" aria-label="What the text below is">${b('note', 'Note for Claude')}${b('comment', 'My comment, as written')}</span>
@@ -973,12 +1032,12 @@ function setNoteMode(mode) {
 }
 
 function triControls(f) {
-  const s = statusOf(f), done = doneState(), local = localMode();
+  const s = statusOf(f), done = doneState(), local = fixMode();
   // A fixed finding keeps its decision on show, but nothing is posted for it.
   const state = isFixed(f) ? `Fixed in ${short(f.rereview.at)}: left out of the drafts`
     : local ? ({ fix: 'To fix in your code', skip: "Won't fix" }[s] || 'Not decided yet')
-    : s === 'post' ? (done ? done.word : 'Will be posted') : s === 'fix' ? 'To fix in your code, not posted' : s === 'skip' ? 'Stays here' : 'Not decided yet';
-  const fix = canFix(f) ? `<button class="tb fix${s === 'fix' ? ' on' : ''}" data-tri="fix" aria-pressed="${s === 'fix'}"${lockAttr()}>⚒︎ Fix${hint('f')}</button>` : '';
+    : s === 'post' ? (done ? done.word : 'Will be posted') : s === 'skip' ? 'Stays here' : 'Not decided yet';
+  const fix = local ? `<button class="tb fix${s === 'fix' ? ' on' : ''}" data-tri="fix" aria-pressed="${s === 'fix'}"${lockAttr()}>⚒︎ Fix${hint('f')}</button>` : '';
   // A local review has nothing to post: Fix or Won't fix only.
   const post = local ? '' : `<button class="tb post${s === 'post' ? ' on' : ''}" data-tri="post" aria-pressed="${s === 'post'}"${lockAttr()}>✓ Post${hint('a')}</button>`;
   return `<div class="tri-row">
@@ -1010,7 +1069,7 @@ function triAnchor(f) {
     if (!a) return '<span>No code anchor.</span>';
     return `<span>⚒︎ Fix at <code>${esc(a.path)}:${a.line}</code></span>`;
   }
-  if (localMode()) {
+  if (fixMode()) {
     if (!a) return '<span>No code anchor.</span>';
     return `<span>At <code>${esc(a.path)}:${a.line}</code></span>
     <span>${shortcutsOn() ? 'Click a line number, or press <kbd>[</kbd> / <kbd>]</kbd>, to move it.' : 'Click a line number to move it.'}</span>`;
@@ -1143,9 +1202,9 @@ function renderKeys() {
   document.getElementById('chat-show').title = on ? 'Show the chat with Claude (h)' : 'Show the chat with Claude';
   document.getElementById('chat-hide').title = on ? 'Hide the chat (h)' : 'Hide the chat';
   const el = document.getElementById('keys');
-  const local = localMode();
+  const local = fixMode();
   if (el) el.innerHTML = shortcutsOn()
-    ? `${local ? '' : '<kbd>a</kbd> post · '}${canFix(D.findings[current]) ? '<kbd>f</kbd> fix in your code · ' : ''}<kbd>r</kbd> ${local ? "won't fix" : "don't post"} · <kbd>u</kbd> clear · <kbd>n</kbd> next undecided · <kbd>e</kbd> write a note${local ? '' : ' or your comment'} ·
+    ? `${local ? '' : '<kbd>a</kbd> post · '}${fixMode() ? '<kbd>f</kbd> fix in your code · ' : ''}<kbd>r</kbd> ${local ? "won't fix" : "don't post"} · <kbd>u</kbd> clear · <kbd>n</kbd> next undecided · <kbd>e</kbd> write a note${local ? '' : ' or your comment'} ·
       <kbd>c</kbd> chat with Claude · <kbd>h</kbd> hide/show the chat · <kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>o</kbd> open in VS Code · ${local ? 'click a line number to choose the line · <kbd>[</kbd>/<kbd>]</kbd> move the line' : 'click a line number to choose where the comment goes · <kbd>[</kbd>/<kbd>]</kbd> move the comment line'}`
     : 'Single-key shortcuts are off; turn them on under the chat’s ⚙ settings. <kbd>↑</kbd>/<kbd>↓</kbd> next/previous · click a line number to choose ' + (local ? 'the line' : 'where the comment goes');
   const f = D.findings[current], anchorHint = document.getElementById('tri-anchor'), note = document.getElementById('note');
@@ -1265,10 +1324,14 @@ function renderFreshness() {
   // Review them (rereview.py): offered while the page can fork its review session; else the reason is the lead's title.
   // Hidden while one runs (its own banner says so). With unposted drafts it asks here first.
   const R = RR(), label = F.status === 'rewritten' ? 'Review the new head' : `Review the ${phrase(n, 'new commit', 'new commits')}`;
-  const review = !SERVED || !R.can || locked() ? ''
+  // No finding's file changed: the lines can move without Claude (rereview.py lines_only), even with no review transcript.
+  const untouched = F.status === 'behind' && !!F.affected && !Object.keys(F.affected).length;
+  const lines = SERVED && R.lines_ok && untouched && !locked() && !rrConfirm
+    ? `<button id="rr-lines" title="The new commits change none of the findings' files, so each finding moves to the new head through the diff, with your triage. Nothing reviews what the commits added.">Move the lines only (no Claude)</button>` : '';
+  const review = !SERVED || !R.can || locked() ? lines
     : rrConfirm ? `<span class="confirm"><span>This discards the unposted drafts: they refer to the old lines. They go only once the review succeeds.</span>
         <button class="go" id="rr-go">Discard drafts and review</button><button id="rr-cancel">Cancel</button></span>`
-    : `<button class="go" id="rr-start" title="A fork of the review session reviews the new commits and re-checks each finding at the new head; this page then shows the new head with your triage carried over. It costs about as much as drafting comments.">${esc(label)}</button>`;
+    : `<button class="go" id="rr-start" title="${esc(rrStartTitle(R))}">${esc(label)}</button>${lines}<span class="rr-cost">${esc(rrCost(R))}</span>`;
   showFresh(el, `${first}<span${R.can === false && R.why ? ` title="${esc(R.why)}"` : ''}>${lead}${state}</span><span>${impact}</span>
     ${F.compare_url ? `<a href="${esc(F.compare_url)}" target="_blank">See what changed ↗</a>` : ''}
     <button id="fresh-again" aria-label="Check again"><span aria-hidden="true">Check again</span></button>${review}
@@ -1632,7 +1695,7 @@ function setAnchor(path, line) {
   rerender(document.getElementById('rr-marks'), rrMarks(f), ['data-tri']);
   document.getElementById('tri-anchor').innerHTML = triAnchor(f);
   rerender(document.getElementById('cards'), cardsHtml(f), CARD_KEYS, cardFallback);
-  announce(localMode() ? `Line set to ${path}:${line}`
+  announce(fixMode() ? `Line set to ${path}:${line}`
     : `Comment goes on ${path}:${line}, ${commentable({ path, line }) ? 'inside the diff' : 'outside the diff'}`);
 }
 
@@ -1660,26 +1723,26 @@ function triageText() {
   const items = Object.entries(p.findings);
   const fmt = ([id, v]) => {
     const a = v.anchor ? `${v.anchor.path}:${v.anchor.line}${v.anchor.in_diff ? '' : ' (outside the diff)'}` : 'no anchor';
-    const label = v.mode === 'comment' && v.status !== 'fix' && !localMode() ? 'My comment (post word for word)' : 'Note';
+    const label = v.mode === 'comment' && v.status !== 'fix' && !fixMode() ? 'My comment (post word for word)' : 'Note';
     return `- ${id} ${v.title} @ ${a}` + (v.note.trim() ? `\n  ${label}: ${v.note.trim().replace(/\n/g, '\n  ')}` : '');
   };
   // As in the hand-off (summarize): a finding the new commits fixed is in none of the three, but in its own group.
   const fixed = new Set(D.findings.filter(isFixed).map(f => f.id));
-  // On a local review an old Post is undecided, as on the page.
-  const stOf = v => (localMode() && v.status === 'post') ? null : (v.status || null);
+  // A status in the other mode's word is undecided, as on the page.
+  const stOf = v => v.status === (fixMode() ? 'post' : 'fix') ? null : (v.status || null);
   const group = (label, st) => {
     const rows = items.filter(([id, v]) => !fixed.has(id) && stOf(v) === st).map(fmt);
     return rows.length ? `${label}:\n${rows.join('\n')}` : '';
   };
   const fixedRows = D.findings.filter(isFixed).map(f => `- ${f.id} ${f.title}${f.rereview.why ? ` (${f.rereview.why})` : ''}`);
   // A local review has nothing to post, so the fixed line says "left out" there, not "not to post".
-  const fixedPart = fixedRows.length ? `Fixed by the new commits, so ${localMode() ? 'left out' : 'not to post'}:\n${fixedRows.join('\n')}` : '';
-  if (localMode()) {
+  const fixedPart = fixedRows.length ? `Fixed by the new commits, so ${fixMode() ? 'left out' : 'not to post'}:\n${fixedRows.join('\n')}` : '';
+  if (fixMode()) {
     const n = st => items.filter(([id, v]) => !fixed.has(id) && stOf(v) === st).length;
     return [`Triage of "${p.title}": ${n('fix')} to fix, ${n('skip')} won't fix, ${n(null)} undecided`, group('To fix locally', 'fix'),
       group("Won't fix", 'skip'), group('Undecided', null), fixedPart].filter(Boolean).join('\n\n');
   }
-  return [`Triage of "${p.title}"${p.pr ? ` (PR #${p.pr})` : ''}`, group('To post', 'post'), group('To fix locally', 'fix'), group("Don't post", 'skip'), group('Undecided', null),
+  return [`Triage of "${p.title}"${p.pr ? ` (PR #${p.pr})` : ''}`, group('To post', 'post'), group("Don't post", 'skip'), group('Undecided', null),
     fixedPart].filter(Boolean).join('\n\n');
 }
 
@@ -1746,7 +1809,8 @@ draftsEl.addEventListener('input', e => {
 });
 document.getElementById('fresh').addEventListener('click', e => {
   if (e.target.closest('#fresh-again')) loadFreshness(true);
-  else if (e.target.closest('#rr-start')) startRereview(false);
+  else if (e.target.closest('#rr-start')) startRereview(false, false);
+  else if (e.target.closest('#rr-lines')) startRereview(false, true);
   else if (e.target.closest('#rr-go')) startRereview(true);
   else if (e.target.closest('#rr-cancel')) cancelRereview();
 });
@@ -1812,6 +1876,10 @@ document.getElementById('detail').addEventListener('input', e => {
   autosize(e.target);
   persist();
   if (hadNote !== !!noteOf(D.findings[current])) renderList();
+});
+document.getElementById('meta').addEventListener('click', e => {
+  const b = e.target.closest('#mode-switch');
+  if (b) switchMode(b.dataset.to);
 });
 document.getElementById('detail').addEventListener('click', e => {
   const m = e.target.closest('[data-mode]');
@@ -1888,8 +1956,8 @@ document.addEventListener('keydown', e => {
     ArrowDown: () => select(order[Math.min(order.length - 1, pos + 1)] ?? order[0]),
     k: () => select(order[Math.max(0, pos - 1)] ?? order[0]),
     ArrowUp: () => select(order[Math.max(0, pos - 1)] ?? order[0]),
-    a: () => { if (!localMode()) setStatus('post'); },
-    f: () => { if (canFix(D.findings[current])) setStatus('fix'); },
+    a: () => { if (!fixMode()) setStatus('post'); },
+    f: () => { if (fixMode()) setStatus('fix'); },
     r: () => setStatus('skip'),
     u: clearStatus,
     n: nextUndecided,
@@ -1912,10 +1980,10 @@ updateToolbar();
 const startAt = D.findings.findIndex(f => '#' + encodeURIComponent(f.id) === location.hash);
 select(startAt >= 0 ? startAt : (visibleOrder()[0] ?? 0), false);
 rereviewedNote();
-loadState().then(() => { updateToolbar(); renderList(); renderDetail(); });
+loadState().then(() => { renderMode(); updateToolbar(); renderList(); renderDetail(); renderKeys(); });
 loadChat().then(loadSettings);
 loadFreshness();
 renderJobsButton();
 loadActivity();
 // The list links "drafts ready" to page.html#drafts, which opens the drafts dialog.
-loadHandoff().then(() => { if (location.hash === '#drafts' && HANDOFF?.can_draft) openDrafts(); });
+loadHandoff().then(() => { if (location.hash === '#drafts' && canDraft()) openDrafts(); });
