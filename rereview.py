@@ -953,6 +953,7 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
                 'title': data['title'], 'subtitle': data.get('subtitle', ''), 'cwd': data.get('repo_root') or str(Path.home()),
                 'repo': (data.get('github') or '').removeprefix('https://github.com/') or None, 'pr': data.get('pr'),
                 'reviewed_sha': head, 'session_id': data.get('session_id'), 'review_session': data.get('review_session'),
+                'mode': data.get('mode'),
                 'findings': findings, 'out': str(store.html_path(page)), 'rereviewed': [*(data.get('rereviewed') or []), entry]})
             if not built or store.reviewed_ref(built[1]) != head:
                 raise ValueError(f'the page could not be built at {head[:8]}')

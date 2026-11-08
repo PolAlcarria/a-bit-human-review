@@ -64,6 +64,21 @@ def load_chat(page: str) -> dict:
     return chat if isinstance(chat, dict) else {}
 
 
+MODES = ('post', 'fix')
+
+
+def review_mode(data: dict, dec: dict | None = None) -> str:
+    """The page's mode: post (findings become PR comments: Post or Don't post) or fix (the reviewer's own code: Fix or
+    Won't fix). The reviewer's choice on the page (``mode`` in decisions.json) wins over the one the page was built with
+    (``mode`` in review.json). A page built before modes takes fix when it has no PR or a finding is marked Fix, else
+    post."""
+    for source in (dec or {}, data):
+        if source.get('mode') in MODES:
+            return source['mode']
+    marked = any((v or {}).get('status') == 'fix' for v in ((dec or {}).get('findings') or {}).values())
+    return 'fix' if not data.get('pr') or marked else 'post'
+
+
 def page_data(page: str) -> dict | None:
     path = review_path(page)
     try:

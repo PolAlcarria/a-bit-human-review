@@ -123,6 +123,12 @@ nothing is recorded in `state.json`, and `/findings` reads and opens it. About 4
 and suffix matches. When a suffix is ambiguous, files in the diff win, then the shortest path; the alternatives are
 shown on the page.
 
+**Which mode** (`render.review_mode()`), decided once here and kept by a re-review: `fix` for your own code (no PR, or a
+PR the `gh` user opened), `post` for someone else's PR, or when `gh` cannot say who you are. It is stored as `mode` in
+`review.json`; the page can switch it ([The review page](#the-review-page)). `store.review_mode()` gives the mode in
+force: the reviewer's choice, else the built one; a page built before modes takes `fix` with no PR or a finding marked
+Fix, else `post`.
+
 The output is the folder `out/<YYYYmmdd-HHMMSS>-<slug>/`: `review.json` (the data) and `page.html` (the template with
 the data JSON inlined, `<` escaped). `build_page()` builds the data and `write_page()` writes both files, each in one
 step (a temporary file renamed over it), review.json last. A re-review ([Review the new

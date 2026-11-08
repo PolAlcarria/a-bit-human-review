@@ -99,7 +99,7 @@ entry     finding_viewer ─► hook, render, handoff, triage, setup_cmds   (and
 
 features  hook ─► extract, parse, render, triage        setup_cmds ─► triage
           triage ─► chat, draft, freshness, handoff, render, rereview, reviews
-          handoff ─► draft, freshness, rereview, send    render ─► extract, parse, reviews
+          handoff ─► draft, freshness, rereview, send    render ─► extract, freshness, parse, reviews
           reviews ─► chat, draft, freshness, rereview    rereview ─► chat, draft, extract, freshness
           draft ─► chat, send                            send ─► chat
           chat, extract, freshness, parse ─► no feature
@@ -132,7 +132,7 @@ an older file can lack some of them.
 
 - **Page data**: `out/<page>/review.json`, from `render.build_page()`. `page.html` beside it carries the same JSON in
   its `<script type="application/json" id="data">` block. Top level: `page`, `title`, `subtitle`, `generated`,
-  `session_id`, `review_session`, `pr`, `pr_author`, `base`, `ref`, `blob_ref`, `ref_label`, `merge_base`, `github`,
+  `session_id`, `review_session`, `pr`, `pr_author`, `mode` (`post` or `fix`, see `store.review_mode`), `base`, `ref`, `blob_ref`, `ref_label`, `merge_base`, `github`,
   `repo_root`, `repo_name`, `notes`, `findings`, `files` (by path: `lines`, `lang`, `added`, `removed`, `hunks`,
   `changed`, `truncated`), and `rereviewed` after a re-review. A finding: `id`, `severity`, `title`, `body`,
   `recurring`, `meta`, `locations` (`raw`, `path`, `start`, `end`, `ambiguous`), and `rereview` (`status`, `at`, `why`,
