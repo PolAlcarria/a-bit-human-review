@@ -9,6 +9,11 @@
 - The `extract.confirm` setting (off by default): on, the Stop hook never starts Claude to read a review (about a
   minute and $0.10–0.30). It says so instead, and `/findings` reads and opens it.
 
+- Each review page has a mode, decided when it is built and shown in the header: **post mode** (someone else's PR:
+  Post or Don't post) or **fix mode** (your own code, with no PR or a PR you opened: Fix or Won't fix). A page with a
+  PR can switch between them, and the decisions move with it (Post ↔ Fix). The page no longer waits for `gh` to say
+  whose PR it is before it shows the Fix button, and a PR you opened no longer shows Post, Fix and Don't post at once.
+
 ### Changed
 - The hand-off to the review session follows the page's mode: in post mode it has nothing to fix, in fix mode
   nothing to post. A PR you opened used to mix both ("1 to post, 1 to fix locally, …"). Draft comments and posting

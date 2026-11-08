@@ -170,15 +170,17 @@ Loads highlight.js, marked and DOMPurify from cdnjs; everything else is inline.
   save removes those older keys.
 - **Anchor**: by default the first flagged line that falls inside a diff hunk, else the first flagged line. Clicking a
   line number moves it. Each saved anchor carries `in_diff`, which tells Claude whether it can be an inline comment.
-- **Fix** (own code only): on a review with no PR, or of a PR the `gh` user opened (`own_code` from `/api/handoff`),
-  each finding gets a third button, Fix (`f`), between Post and Don't post (on a PR review; a local review has only Fix
-  and Won't fix), stored as `status: "fix"`. Its note is always a note for Claude, never a comment posted word for word.
-  Fix findings are never drafted or posted; Copy triage and the hand-off list them under "To fix locally".
-- **Local review** (no PR): a review with no PR is your own code before a PR exists, so nothing is posted. Each finding
-  gets Fix (`f`) and Won't fix (`r`, stored as `skip`), with no Post button, key or filter; the header says "Local
-  review · no PR". A finding stored as Post before this (an older page) counts as undecided and keeps its stored value
-  until you pick again. Copy triage says "N to fix, N won't fix, N undecided".
-- **Send fixes to session**: on your own code (no PR, or a PR you opened) with at least one Fix finding, the toolbar
+- **Mode**: the header says the page's mode, **Post mode** (findings become comments on the PR) or **Fix mode** (your
+  own code: fix it, nothing is posted; "Local review · no PR" with no PR), as `store.review_mode()` gives it. Each mode
+  has two buttons and never mixes them: Post (`a`) and Don't post (`r`), or Fix (`f`) and Won't fix (`r`, stored as
+  `skip`). A page with a PR has **Switch to post** / **Switch to fix** beside it (not while a re-review runs, nor on a
+  page opened as a file); a page with no PR has nothing to post to, so it stays in fix mode. Switching stores `mode` in
+  the triage and moves each decision with it (Post ↔ Fix; Don't post / Won't fix and undecided stay), and says how
+  many moved. A finding stored with the other mode's word (from before modes) counts as undecided and keeps its stored
+  value until you pick again. In fix mode a note is always a note for Claude, never a comment posted word for word,
+  Draft comments is hidden, and Copy triage says "N to fix, N won't fix, N undecided"; in post mode Send fixes is
+  hidden.
+- **Send fixes to session**: in fix mode with at least one Fix finding, the toolbar
   button hands the triage to the review session now, without waiting for your next message there: `POST
   /api/send-fixes/<page>` starts a detached worker that relays `summarize(…, for_claude=True)` with `send.deliver` to
   the session open in Claude Code (`~/.claude/sessions`), then deletes the relay's own transcript. The button reads

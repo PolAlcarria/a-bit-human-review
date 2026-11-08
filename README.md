@@ -87,8 +87,7 @@ doctor`): one PASS / WARN / FAIL line per requirement, the hooks, the command, t
 1. Ask for a review and name the viewer: "review PR 123 and open it in the finding viewer". When the turn ends, the
    page opens (or, with `auto_open` off, is built and its address printed). After any review you can also run
    `/findings`. Reviews of a local branch or of the working tree work too, not only PRs.
-2. Decide each finding: `a` post, `f` fix (your own code only: Claude changes the code when you next write in the
-   session, and never posts it), `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
+2. Decide each finding: `a` post, `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
    choose where the comment goes. Your triage saves as you go.
 3. Click **Draft comments**: a fork of the review session, which knows the whole review, writes the comments you chose.
    Edit the drafts, their levels (Must-fix, Should-fix, Suggestion, Nit, Question) and the review type, then
@@ -101,8 +100,10 @@ the Claude sessions behind it, each with a `claude --resume` command to open it 
 
 ### Your own code
 
-With no PR behind it (or on a PR you opened), the review is of your own code: findings are **Fix** or **Won't fix**,
-and **Send fixes to session** hands the Fix ones to the review session at once.
+With no PR behind it (or on a PR you opened), the page opens in **fix mode**: findings are **Fix** or **Won't fix**,
+nothing is posted, and **Send fixes to session** hands the Fix ones to the review session at once. Someone else's PR
+opens in **post mode** (Post or Don't post). The header says which; on a page with a PR, **Switch to post** / **Switch
+to fix** changes it, and your decisions move with it.
 
 ![Triaging the same review on your own code](docs/demo-local.gif)
 
