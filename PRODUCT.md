@@ -18,8 +18,8 @@ every finding, then goes back to the same Claude session to post what they appro
 ## Product Purpose
 
 A human gate between an AI code review and the pull request. Each finding sits next to the code it points at; the
-reviewer marks it **Post** or **Don't post**, writes a note, picks the line the comment goes on, and can ask a side
-Claude about it. The triage flows back into the review session, so Claude drafts and posts only what was approved.
+reviewer marks it **Post** or **Don't post** (on the reviewer's own code, **Fix** or **Won't fix**: the page's mode),
+writes a note, picks the line the comment goes on, and can ask a side Claude about it. The triage flows back into the review session, so Claude drafts and posts only what was approved.
 
 Success is both of these at once:
 
@@ -38,7 +38,8 @@ itself never posts anything to GitHub.
 
 - **Trigger:** only on request. `/findings` opens the latest review in the session, the list, a saved report, or
   prints the current triage; or the prompt that asks for the review has `/findings` in it ("…, then /findings"; with
-  the `trigger` setting at `mention`, naming the viewer is enough), and a Stop hook opens the page when that turn ends. A review nobody asked the viewer for is never read.
+  the `trigger` setting at `mention`, naming the viewer is enough), and a Stop hook opens the page when that turn
+  ends. A review nobody asked the viewer for is never read.
 - **Hand-back:** a UserPromptSubmit hook injects the triage into the next prompt of the session that ran the review.
   A Send action that relays the triage to that session (`send.py`) is in progress.
 - **Surfaces:** a list of all reviews at `http://127.0.0.1:47321/` and one review page per render.
@@ -57,11 +58,12 @@ itself never posts anything to GitHub.
   (markup, CSS, script, shared CSS) and inlined by the server, so each served page is still one file; plus cdnjs
   libraries (highlight.js, marked, DOMPurify) and no build step; a server bound to `127.0.0.1`; desktop-only use.
 - **Real costs:** reading findings with Claude takes about 45–60 s and $0.10–0.30 per review; side-chat messages
-  cost money too. Waits and costs are shown, not hidden.
+  and re-reviews cost money too. Waits and costs are shown, not hidden: a re-review says how much context it will
+  read before it starts and what it read and cost when it ends, and has a turn limit.
 - **GitHub limit:** inline comments are accepted only inside diff hunks. Each anchor records `in_diff`; anchors
   outside go into the review body.
 - **Terminology:** finding, severity (critical / warning / suggestion / question / finding, from must-fix /
-  should-fix / nit / question), Post / Don't post, note, anchor, triage, hand-off, render, freshness, side chat,
+  should-fix / nit / question), Post / Don't post, Fix / Won't fix, mode (post or fix), note, anchor, triage, hand-off, render, freshness, side chat,
   review session.
 - **Author-specific today:** saved review reports (`.claude/.history/code-reviews/*.md`). These must stay
   an optional source once the tool is public.
