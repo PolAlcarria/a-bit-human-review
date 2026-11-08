@@ -48,12 +48,12 @@ Whether the turn is a review at all:
 - `select_findings()` on the parsed markdown: at least one anchored finding.
 - Otherwise `review_intent()`, for reviews the parser cannot read (tables, prose, findings without lines). The answer
   must be finding-shaped (400+ characters with a `file:line` anchor or two severity words) and a review must have been
-  asked for: the prompt names the viewer, says "review", or a `ReportFindings` call or a skill with "review" in its name
+  asked for: the prompt asks for the viewer (as the `trigger` setting says), says "review", or a `ReportFindings` call or a skill with "review" in its name
   ran in the turn. Claude then reads the findings ([Building a page: render](#building-a-page-render)).
-- A named turn with no review in it gets a one-line `systemMessage` saying so.
+- A turn that asks for the viewer with no review in it gets a one-line `systemMessage` saying so.
 
 **A review run in the background** (the `code-review` skill forked, or an `Agent` call with `run_in_background`) splits
-in two turns: the one whose prompt names the viewer launches it (the tool's result says it runs in the background), and
+in two turns: the one whose prompt asks for the viewer launches it (the tool's result says it runs in the background), and
 its findings come in a later turn that starts with the task's notification (a user row with `origin.kind ==
 "task-notification"`, naming the call in `<tool-use-id>`). `read_turns()` gives that turn the prompt and hand-off of the
 turn that launched the task (found by the call's id, else the turn before) and records it as `continues`; its texts and
@@ -258,7 +258,7 @@ built-in buttons, and an empty list shows none. A page opened as a file shows th
 
 ## Draft comments and posting
 
-Draft comments (toolbar button on PR reviews whose review transcript still exists; `n` with nothing left to decide
+Draft comments (toolbar button on PR reviews in post mode whose review transcript still exists; `n` with nothing left to decide
 flashes it; `page.html#drafts` opens the dialog). `draft.py`, in three steps:
 
 1. **Draft**: `claude -p --resume <review session> --fork-session` inherits the whole review conversation, gets `PROMPT`
@@ -304,7 +304,7 @@ Served at `/`, filled from `GET /api/reviews`.
   requested ("N to change"), resolved and open, side chats and whether Claude got the triage. They have no freshness
   check and are never Done: a diff review stays in the list until it is archived or deleted.
 - **Badges** (code reviews): finding count, the page's mode (`post mode` or `fix mode`; the counts follow it, as on the
-  page, so a status in the other mode's word counts as undecided), how many are decided and marked to post or to fix (`N to fix`, own code only; findings the
+  page, so a status in the other mode's word counts as undecided), how many are decided and marked to post (post mode) or to fix (`N to fix`, fix mode); findings the
   new commits fixed are counted apart, "N fixed since"), `● N running` while a job runs on the review ("● Reviewing new
   commits" during a re-review; the list re-reads itself every 5 s until it ends, without re-checking the PRs), side
   chats, where the triage went (from `drafts.json`: drafting, "drafts ready to approve" linking to the dialog, "✓ posted
@@ -487,8 +487,9 @@ head"), with what it will read beside it: for a fork, "Reads the review session 
 (`sessions.context_tokens()`: the input of the review session's last answer, read from its transcript and kept until
 the file changes), for a fresh session "New session: reads only the findings and the new commits", and, when the new
 commits change none of the findings' files, **Move the lines only (no Claude)** (also on a page whose review transcript
-is gone; its running banner says "Moving the findings to the new head…"), unless the page cannot fork its review session (the transcript is gone) or shows the working tree: then there is
-no button and the reason is the banner text's title. Starting saves any pending triage first. With unposted drafts
+is gone; its running banner says "Moving the findings to the new head…"). When the page shows the working tree, or
+`rereview.context` is `fork` and the review's transcript is gone, there is no Review button and the reason is the banner
+text's title. Starting saves any pending triage first. With unposted drafts
 (ready, or a failed post), the banner first asks "This discards the unposted drafts…" with Discard drafts and review /
 Cancel (Esc cancels); they go only if the re-review succeeds. While it runs, its own banner says "Reviewing the N new
 commits… 1:12" (the clock is `aria-hidden`; the start is said once) with Stop, and the page is **locked**: Post / Fix /
@@ -519,8 +520,8 @@ and go when you decide again or pick a line (the reset note also with the next r
 The freshness check says the PR moved past the reviewed commit; this reviews those commits and brings the page to the
 new head (decisions E1–E4 of 2026-10-19).
 
-- **Start** (`POST /api/rereview/<page>`, `rereview.start()`): refused when the page shows the working tree or the
-  review transcript is gone (409, and the page shows no button), when the check (`freshness.check()`, cached for a
+- **Start** (`POST /api/rereview/<page>`, `rereview.start()`): refused when the page shows the working tree or, in a
+  fork, the review transcript is gone (409, and the page shows no button), when the check (`freshness.check()`, cached for a
   minute) finds nothing newer or the new head is not in the clone (409), while another job runs on the page (409 "Wait
   until Draft comments ends, or stop it in Sessions."; posting and telling cannot be stopped), and while unposted drafts
   are not confirmed for discarding (409 with `drafts: true`). The server hands the worker each finding's decision and
