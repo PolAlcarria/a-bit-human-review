@@ -6,41 +6,40 @@
 - The `trigger` setting says when the Stop hook opens a page: `explicit` (the default) only when the prompt has
   `/findings` written in it, `mention` also when the prompt names the viewer (the old behaviour), `off` never (only
   `/findings` opens pages). A value outside these three is ignored, and `doctor` says so.
+- The `extract.confirm` setting (off by default): on, the Stop hook never starts Claude to read a review (about a
+  minute and $0.10–0.30). It says so instead, and `/findings` reads and opens it.
+- Each review page has a mode, decided when it is built and shown in the header: **post mode** (someone else's PR:
+  Post or Don't post) or **fix mode** (your own code, with no PR or a PR you opened: Fix or Won't fix). A page with a
+  PR can switch between them, and the decisions move with it (Post ↔ Fix); a page with no PR is always in fix mode.
+  The list of reviews shows each page's mode and counts its decisions in it.
 - The `rereview.context` setting: `fork` (the default, as before) re-reviews in a fork of the review session;
   `fresh` in a new session that knows only the findings, the new commits and the PR's comments, which costs far less
   on a long review and works after the review's transcript is gone.
-- A re-review says what it cost: its message gives the tokens read and claude's cost ("Reviewed f48a8e88: 1 fixed,
-  2 new (412k tokens read, $1.37 (the fork's total))."), and the page keeps them with the re-review (`usage`).
-- Before you start a re-review, the banner says what it will read: about how many tokens of the review session's
-  context a fork reads again, or that a fresh session reads only the findings and the new commits.
-- **Move the lines only (no Claude)**: when the PR's new commits change none of the findings' files, the banner offers
-  to bring the page to the new head for free, with the triage carried over, instead of a re-review. It also works
-  after the review's transcript is gone. It does not review what the commits added.
 - A re-review stops after 80 turns (`rereview.max_turns`), and can be given a spending limit
   (`rereview.max_budget_usd`, none by default). A run that hits one fails with which limit it was, and the page is
   unchanged. `0` turns either off.
-- The `extract.confirm` setting (off by default): on, the Stop hook never starts Claude to read a review (about a
-  minute and $0.10–0.30). It says so instead, and `/findings` reads and opens it.
-
-- Each review page has a mode, decided when it is built and shown in the header: **post mode** (someone else's PR:
-  Post or Don't post) or **fix mode** (your own code, with no PR or a PR you opened: Fix or Won't fix). A page with a
-  PR can switch between them, and the decisions move with it (Post ↔ Fix). The page no longer waits for `gh` to say
-  whose PR it is before it shows the Fix button, and a PR you opened no longer shows Post, Fix and Don't post at once.
+- Before you start a re-review, the banner says what it will read: about how many tokens of the review session's
+  context a fork reads again, or that a fresh session reads only the findings and the new commits.
+- A re-review says what it cost: its message gives the tokens read and claude's cost ("Reviewed f48a8e88: 1 fixed,
+  2 new (412k tokens read, $1.37 (the fork's total))."), and the page keeps them with the re-review (`usage`).
+- **Move the lines only (no Claude)**: when the PR's new commits change none of the findings' files, the banner offers
+  to bring the page to the new head for free, with the triage carried over, instead of a re-review. It also works
+  after the review's transcript is gone. It does not review what the commits added.
 
 ### Changed
 - **The Stop hook opens a page only when the prompt has `/findings` in it** ("review PR 12, then /findings"). Naming the
   viewer in prose ("open it in the finding viewer") no longer opens one; the hook says to run `/findings` instead. Set
   `"trigger": "mention"` in `config.json` for the old behaviour.
+- The project's name alone ("a-bit-human-review") no longer counts as naming the viewer: a session working on this
+  repository opened pages, and paid Claude to read them, whenever a prompt mentioned it. "finding viewer" and
+  `/findings` (or `/a-bit-human-review:findings`) still count with `trigger` at `mention`.
+- The hand-off to the review session follows the page's mode: in post mode it has nothing to fix, in fix mode
+  nothing to post. A PR you opened used to mix both ("1 to post, 1 to fix locally, …"). Draft comments and posting
+  are refused in fix mode, Send fixes to session in post mode. `/api/handoff` gives `mode` instead of `own_code`.
 - A re-review's prompt is shorter: instead of the whole hand-off summary, which listed every finding a second time,
   it carries each finding's decision and note under that finding.
 - A re-review no longer quotes the text of a finding the new commits do not touch (the fork has the review already),
   nor anything but the title and the reason of one fixed or dismissed in an earlier re-review.
-- The hand-off to the review session follows the page's mode: in post mode it has nothing to fix, in fix mode
-  nothing to post. A PR you opened used to mix both ("1 to post, 1 to fix locally, …"). Draft comments and posting
-  are refused in fix mode, Send fixes to session in post mode.
-- The project's name alone ("a-bit-human-review") no longer counts as naming the viewer: a session working on this
-  repository opened pages, and paid Claude to read them, whenever a prompt mentioned it. "finding viewer" and
-  `/findings` (or `/a-bit-human-review:findings`) still count.
 
 ## [0.5.1] - 2026-11-05
 
