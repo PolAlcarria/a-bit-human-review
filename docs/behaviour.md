@@ -6,9 +6,11 @@ How each feature behaves, in detail. The map of the code (processes, modules, da
 ## Detecting a review: the Stop hook
 
 Runs as a Stop hook after every turn, but acts only on a turn whose prompt asks for the viewer, as the `trigger` setting
-says. With `off` the hook does nothing at all (only `/findings` opens pages). With `explicit` the prompt must have the
-command written in it (`EXPLICIT_RE`: `/findings` or `/a-bit-human-review:findings`, as in "review PR 12, then
-/findings"), not just the viewer's name. With `mention`, the default, the prompt **names the viewer** (`MENTION_RE`: "finding
+says. With `off` the hook does nothing at all (only `/findings` opens pages). With `explicit`, the default, the prompt
+must have the command written in it (`EXPLICIT_RE`: `/findings` or `/a-bit-human-review:findings`, as in "review PR 12,
+then /findings"); a prompt that only names the viewer in prose opens nothing and gets the `systemMessage` "naming the
+viewer does not open a page (trigger is explicit). Run /findings to open this review, or write /findings in the prompt
+next time." With `mention`, the prompt **names the viewer** (`MENTION_RE`: "finding
 viewer", "findings viewer", "finding-viewer", or `/findings` or `/a-bit-human-review:findings` inside the text; the
 project's name alone does not count, since a session working on this repository says it all the time; not inside a path, and not the `/findings` command or its shell output, which `COMMAND_TAG_RE` strips
 first; a slash command's arguments do count). A transcript that never names the viewer is not even parsed. `/findings`

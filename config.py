@@ -34,7 +34,7 @@ DEFAULTS: dict[str, Any] = {
     'default_base': '',
     'delete_forks': True,
     'auto_open': True,
-    'trigger': 'mention',
+    'trigger': 'explicit',
 }
 ENV = {
     'port': 'FINDING_VIEWER_PORT',
@@ -61,7 +61,7 @@ RANGES: dict[str, tuple[int, int]] = {
 }
 # Keys that take one of a few words, the default first.
 CHOICES: dict[str, tuple[str, ...]] = {
-    'trigger': ('mention', 'explicit', 'off'),
+    'trigger': ('explicit', 'mention', 'off'),
     'rereview.context': ('fork', 'fresh'),
 }
 FALSE_WORDS = ('0', 'false', 'no', 'off')

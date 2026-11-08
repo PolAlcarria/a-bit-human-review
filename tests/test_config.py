@@ -172,9 +172,9 @@ class ConfigLoadTest(unittest.TestCase):
         self.assertEqual(len(problems), 3)
         self.assertIn('expected a whole number from 0 to 1000', problems[0])
 
-    def test_trigger_defaults_to_mention(self):
+    def test_trigger_defaults_to_explicit(self):
         values, _, _ = config.load(missing_config(), {})
-        self.assertEqual(values['trigger'], 'mention')
+        self.assertEqual(values['trigger'], 'explicit')
 
     def test_trigger_from_the_file_and_the_variable(self):
         values, _, problems = config.load(write_config('{"trigger": "explicit"}'), {})
@@ -184,9 +184,9 @@ class ConfigLoadTest(unittest.TestCase):
 
     def test_a_trigger_outside_the_choices_is_one_problem(self):
         values, _, problems = config.load(write_config('{"trigger": "always"}'), {'FINDING_VIEWER_TRIGGER': 'never'})
-        self.assertEqual(values['trigger'], 'mention')
+        self.assertEqual(values['trigger'], 'explicit')
         self.assertEqual(len(problems), 2)
-        self.assertTrue(all('expected one of mention, explicit, off' in p for p in problems))
+        self.assertTrue(all('expected one of explicit, mention, off' in p for p in problems))
 
 
 class NonHttpPortTest(unittest.TestCase):

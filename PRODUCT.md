@@ -37,8 +37,8 @@ itself never posts anything to GitHub.
 ## Operating Context
 
 - **Trigger:** only on request. `/findings` opens the latest review in the session, the list, a saved report, or
-  prints the current triage; or the prompt that asks for the review names the viewer ("…and open it in the finding
-  viewer"), and a Stop hook opens the page when that turn ends. A review nobody asked the viewer for is never read.
+  prints the current triage; or the prompt that asks for the review has `/findings` in it ("…, then /findings"; with
+  the `trigger` setting at `mention`, naming the viewer is enough), and a Stop hook opens the page when that turn ends. A review nobody asked the viewer for is never read.
 - **Hand-back:** a UserPromptSubmit hook injects the triage into the next prompt of the session that ran the review.
   A Send action that relays the triage to that session (`send.py`) is in progress.
 - **Surfaces:** a list of all reviews at `http://127.0.0.1:47321/` and one review page per render.

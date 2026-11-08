@@ -3,9 +3,9 @@
 ## [Unreleased]
 
 ### Added
-- The `trigger` setting says when the Stop hook opens a page: `mention` (the default, as before) when the prompt names
-  the viewer, `explicit` only when the prompt has `/findings` written in it, `off` never (only `/findings` opens
-  pages). A value outside these three is ignored, and `doctor` says so.
+- The `trigger` setting says when the Stop hook opens a page: `explicit` (the default) only when the prompt has
+  `/findings` written in it, `mention` also when the prompt names the viewer (the old behaviour), `off` never (only
+  `/findings` opens pages). A value outside these three is ignored, and `doctor` says so.
 - The `rereview.context` setting: `fork` (the default, as before) re-reviews in a fork of the review session;
   `fresh` in a new session that knows only the findings, the new commits and the PR's comments, which costs far less
   on a long review and works after the review's transcript is gone.
@@ -28,6 +28,9 @@
   whose PR it is before it shows the Fix button, and a PR you opened no longer shows Post, Fix and Don't post at once.
 
 ### Changed
+- **The Stop hook opens a page only when the prompt has `/findings` in it** ("review PR 12, then /findings"). Naming the
+  viewer in prose ("open it in the finding viewer") no longer opens one; the hook says to run `/findings` instead. Set
+  `"trigger": "mention"` in `config.json` for the old behaviour.
 - A re-review's prompt is shorter: instead of the whole hand-off summary, which listed every finding a second time,
   it carries each finding's decision and note under that finding.
 - A re-review no longer quotes the text of a finding the new commits do not touch (the fork has the review already),

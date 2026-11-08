@@ -97,6 +97,9 @@ class TriggerTest(unittest.TestCase):
             _, launch = run_hook(write_jsonl('trig_a.jsonl', self.TURN), 'sess-trig-a')
         self.assertEqual(launch.call_count, 1)
 
+    def test_the_default_is_explicit(self):
+        self.assertEqual(hook.config.get('trigger'), 'explicit')
+
     def test_explicit_says_how_to_open_a_review_named_in_prose(self):
         with support.env(FINDING_VIEWER_TRIGGER='explicit'):
             message, launch = run_hook(write_jsonl('trig_e.jsonl', self.TURN), 'sess-trig-e')
@@ -287,9 +290,9 @@ class AutoOpenTest(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(finding_viewer.main(['finding_viewer.py', 'off']), 0)
-        self.assertEqual(out.getvalue().strip(), 'The on and off commands are gone: name the finding viewer in your '
-                         'prompt, or run /findings; "auto_open": false in config.json keeps the hook from opening the '
-                         'browser.')
+        self.assertEqual(out.getvalue().strip(), 'The on and off commands are gone: write /findings in your prompt, '
+                         'or run it; "trigger": "off" in config.json keeps the Stop hook from opening pages, and '
+                         '"auto_open": false keeps it from opening the browser.')
 
 
 if __name__ == '__main__':

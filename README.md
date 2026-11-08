@@ -84,7 +84,7 @@ doctor`): one PASS / WARN / FAIL line per requirement, the hooks, the command, t
 
 ## Code review
 
-1. Ask for a review and name the viewer: "review PR 123 and open it in the finding viewer". When the turn ends, the
+1. Ask for a review with `/findings` in the prompt: "review PR 123, then /findings". When the turn ends, the
    page opens (or, with `auto_open` off, is built and its address printed). After any review you can also run
    `/findings`. Reviews of a local branch or of the working tree work too, not only PRs.
 2. Decide each finding: `a` post, `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
@@ -219,7 +219,7 @@ prints the file's path and the effective values.
 | `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR, and for `/findings diff` (else `origin/HEAD`, develop, main, master) |
 | `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the fork transcripts this tool creates |
 | `auto_open` | `true` | `FINDING_VIEWER_AUTO_OPEN` (`0` = off) | Open the browser when the Stop hook has a review's page ready. Off, the hook builds the page and tells where it is; `/findings` and the list page still open pages |
-| `trigger` | `mention` | `FINDING_VIEWER_TRIGGER` | When the Stop hook opens a page: `mention`, when the prompt names the viewer ("finding viewer", `/findings`); `explicit`, only when the prompt has `/findings` (or `/a-bit-human-review:findings`) written in it; `off`, never, and only `/findings` opens pages |
+| `trigger` | `explicit` | `FINDING_VIEWER_TRIGGER` | When the Stop hook opens a page: `explicit`, only when the prompt has `/findings` (or `/a-bit-human-review:findings`) written in it (a prompt that only names the viewer gets a line saying to run `/findings`); `mention`, also when the prompt names the viewer ("finding viewer"); `off`, never, and only `/findings` opens pages |
 
 ## More
 
