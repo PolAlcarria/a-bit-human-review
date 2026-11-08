@@ -163,6 +163,22 @@ class ConfigLoadTest(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn('auto_open', problems[0])
 
+    def test_trigger_defaults_to_mention(self):
+        values, _, _ = config.load(missing_config(), {})
+        self.assertEqual(values['trigger'], 'mention')
+
+    def test_trigger_from_the_file_and_the_variable(self):
+        values, _, problems = config.load(write_config('{"trigger": "explicit"}'), {})
+        self.assertEqual((values['trigger'], problems), ('explicit', []))
+        values, sources, _ = config.load(write_config('{"trigger": "explicit"}'), {'FINDING_VIEWER_TRIGGER': ' OFF '})
+        self.assertEqual((values['trigger'], sources['trigger']), ('off', 'FINDING_VIEWER_TRIGGER'))
+
+    def test_a_trigger_outside_the_choices_is_one_problem(self):
+        values, _, problems = config.load(write_config('{"trigger": "always"}'), {'FINDING_VIEWER_TRIGGER': 'never'})
+        self.assertEqual(values['trigger'], 'mention')
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(all('expected one of mention, explicit, off' in p for p in problems))
+
 
 class NonHttpPortTest(unittest.TestCase):
     """Something that is not the viewer holds the port: the ping reads as no server and does not raise."""

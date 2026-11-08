@@ -30,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     'default_base': '',
     'delete_forks': True,
     'auto_open': True,
+    'trigger': 'mention',
 }
 ENV = {
     'port': 'FINDING_VIEWER_PORT',
@@ -43,6 +44,11 @@ ENV = {
     'default_base': 'FINDING_VIEWER_DEFAULT_BASE',
     'delete_forks': 'FINDING_VIEWER_DELETE_FORKS',
     'auto_open': 'FINDING_VIEWER_AUTO_OPEN',
+    'trigger': 'FINDING_VIEWER_TRIGGER',
+}
+# Keys that take one of a few words, the default first.
+CHOICES: dict[str, tuple[str, ...]] = {
+    'trigger': ('mention', 'explicit', 'off'),
 }
 FALSE_WORDS = ('0', 'false', 'no', 'off')
 
@@ -110,6 +116,8 @@ def _parse(key: str, text: str) -> Any:
             return None
     if isinstance(default, list):
         return [part for part in text.split(os.pathsep) if part]
+    if key in CHOICES:
+        return text.strip().lower()
     return text
 
 
@@ -123,6 +131,8 @@ def _valid(key: str, value: Any) -> bool:
         return isinstance(value, list) and all(isinstance(v, str) for v in value)
     if key == 'report_glob':
         return isinstance(value, str) and bool(value) and not value.startswith(('/', '~'))
+    if key in CHOICES:
+        return value in CHOICES[key]
     return isinstance(value, str)
 
 
@@ -137,4 +147,6 @@ def _expected(key: str) -> str:
         return 'expected a list of folders'
     if key == 'report_glob':
         return 'expected a glob relative to the repository root'
+    if key in CHOICES:
+        return 'expected one of ' + ', '.join(CHOICES[key])
     return 'expected a string'
