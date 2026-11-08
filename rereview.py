@@ -332,7 +332,7 @@ def view(data: dict, st: dict | None) -> dict:
         out['context_tokens'] = sessions.context_tokens(review[0])
     if st:
         out.update({k: st.get(k) for k in ('status', 'started', 'ended', 'from', 'to', 'commits', 'rewritten', 'error',
-                                           'stopped', 'stopping', 'result', 'discard_drafts')})
+                                           'stopped', 'stopping', 'result', 'discard_drafts', 'lines_only')})
     return out
 
 

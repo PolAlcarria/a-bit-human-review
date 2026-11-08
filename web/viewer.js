@@ -755,7 +755,7 @@ function renderRereview() {
   let html = '', cls = '';
   if (locked()) {
     const what = R.rewritten ? 'the new head' : `the ${phrase(R.commits || 0, 'new commit', 'new commits')}`;
-    html = `<span class="pulse" aria-hidden="true"></span><b>Reviewing ${esc(what)}…</b>
+    html = `<span class="pulse" aria-hidden="true"></span><b>${R.lines_only ? 'Moving the findings to the new head…' : `Reviewing ${esc(what)}…`}</b>
       <span class="jt" data-started="${esc(R.started)}" aria-hidden="true">${clock(Date.now() / 1000 - R.started)}</span>
       <span class="why">Triage, notes, drafts and the chat wait until it ends.</span>
       <button data-rr="stop"${R.stopping ? ' aria-disabled="true"' : ''}>${R.stopping ? 'Stopping…' : 'Stop'}<span class="sr-only"> the review of the new commits</span></button>`;
@@ -835,8 +835,12 @@ function applyLock() {
 // Unposted drafts point at the old lines: starting asks first, in the banner, and they go only if the review succeeds.
 const unpostedDrafts = () => { const X = DS(); return !!X?.review && ['ready', 'failed'].includes(X.status); };
 
-async function startRereview(discard) {
+// linesOnly: move the findings to the new head without Claude (only offered when no finding's file changed). The
+// choice is kept while the drafts question is asked.
+let rrLinesOnly = false;
+async function startRereview(discard, linesOnly = rrLinesOnly) {
   if (rrStarting || locked()) return;
+  rrLinesOnly = !!linesOnly;
   if (!discard && unpostedDrafts()) { rrConfirm = true; renderFreshness(); document.getElementById('rr-go')?.focus(); return; }
   rrStarting = true;
   // The fork gets the saved triage, so save any pending change first (as startDraft does).
@@ -844,7 +848,7 @@ async function startRereview(discard) {
   let error = '', ask = false;
   try {
     const r = await fetch('/api/rereview/' + encodeURIComponent(D.page), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Finding-Viewer': '1' }, body: JSON.stringify({ discard_drafts: !!discard }),
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Finding-Viewer': '1' }, body: JSON.stringify({ discard_drafts: !!discard, lines_only: rrLinesOnly }),
     });
     const body = await r.json().catch(() => ({}));
     ask = r.status === 409 && body.drafts;  // drafts appeared meanwhile (another tab): ask here too
@@ -854,6 +858,7 @@ async function startRereview(discard) {
   }
   rrStarting = false;
   rrConfirm = ask;
+  if (!ask) rrLinesOnly = false;
   rrNote = error ? { kind: 'bad', text: `Not started: ${error}` } : null;
   if (error) announce(rrNote.text);
   await loadHandoff();
@@ -865,6 +870,7 @@ async function startRereview(discard) {
 
 function cancelRereview() {
   rrConfirm = false;
+  rrLinesOnly = false;
   renderFreshness();
   document.getElementById('rr-start')?.focus();
 }
@@ -1317,10 +1323,14 @@ function renderFreshness() {
   // Review them (rereview.py): offered while the page can fork its review session; else the reason is the lead's title.
   // Hidden while one runs (its own banner says so). With unposted drafts it asks here first.
   const R = RR(), label = F.status === 'rewritten' ? 'Review the new head' : `Review the ${phrase(n, 'new commit', 'new commits')}`;
-  const review = !SERVED || !R.can || locked() ? ''
+  // No finding's file changed: the lines can move without Claude (rereview.py lines_only), even with no review transcript.
+  const untouched = F.status === 'behind' && !!F.affected && !Object.keys(F.affected).length;
+  const lines = SERVED && R.lines_ok && untouched && !locked() && !rrConfirm
+    ? `<button id="rr-lines" title="The new commits change none of the findings' files, so each finding moves to the new head through the diff, with your triage. Nothing reviews what the commits added.">Move the lines only (no Claude)</button>` : '';
+  const review = !SERVED || !R.can || locked() ? lines
     : rrConfirm ? `<span class="confirm"><span>This discards the unposted drafts: they refer to the old lines. They go only once the review succeeds.</span>
         <button class="go" id="rr-go">Discard drafts and review</button><button id="rr-cancel">Cancel</button></span>`
-    : `<button class="go" id="rr-start" title="${esc(rrStartTitle(R))}">${esc(label)}</button><span class="rr-cost">${esc(rrCost(R))}</span>`;
+    : `<button class="go" id="rr-start" title="${esc(rrStartTitle(R))}">${esc(label)}</button>${lines}<span class="rr-cost">${esc(rrCost(R))}</span>`;
   showFresh(el, `${first}<span${R.can === false && R.why ? ` title="${esc(R.why)}"` : ''}>${lead}${state}</span><span>${impact}</span>
     ${F.compare_url ? `<a href="${esc(F.compare_url)}" target="_blank">See what changed ↗</a>` : ''}
     <button id="fresh-again" aria-label="Check again"><span aria-hidden="true">Check again</span></button>${review}
@@ -1798,7 +1808,8 @@ draftsEl.addEventListener('input', e => {
 });
 document.getElementById('fresh').addEventListener('click', e => {
   if (e.target.closest('#fresh-again')) loadFreshness(true);
-  else if (e.target.closest('#rr-start')) startRereview(false);
+  else if (e.target.closest('#rr-start')) startRereview(false, false);
+  else if (e.target.closest('#rr-lines')) startRereview(false, true);
   else if (e.target.closest('#rr-go')) startRereview(true);
   else if (e.target.closest('#rr-cancel')) cancelRereview();
 });

@@ -13,6 +13,9 @@
   2 new (412k tokens read, $1.37 (the fork's total))."), and the page keeps them with the re-review (`usage`).
 - Before you start a re-review, the banner says what it will read: about how many tokens of the review session's
   context a fork reads again, or that a fresh session reads only the findings and the new commits.
+- **Move the lines only (no Claude)**: when the PR's new commits change none of the findings' files, the banner offers
+  to bring the page to the new head for free, with the triage carried over, instead of a re-review. It also works
+  after the review's transcript is gone. It does not review what the commits added.
 - A re-review stops after 80 turns (`rereview.max_turns`), and can be given a spending limit
   (`rereview.max_budget_usd`, none by default). A run that hits one fails with which limit it was, and the page is
   unchanged. `0` turns either off.

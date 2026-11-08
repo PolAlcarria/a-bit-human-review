@@ -112,7 +112,8 @@ to fix** changes it, and your decisions move with it.
 The page checks the PR against the commit it reviewed: up to date, N new commits (and how many findings sit on changed
 code), force-pushed, merged or closed, and whether you already approved it. When the PR has new commits, **Review the N
 new commits** has a fork of the review session read them: each finding comes back fixed in the new commits, changed or
-unchanged, new findings are added, and your triage carries over to the new head. A finding someone on the PR declined
+unchanged, new findings are added, and your triage carries over to the new head. When the new commits change none of the findings' files,
+**Move the lines only (no Claude)** brings the page to the new head for free, without reviewing what they added. A finding someone on the PR declined
 (the change will not be made) comes back **dismissed**, marked Don't post, tagged with who declined it and why, and is
 not raised again. Each finding you posted is re-checked with its own thread on the PR and your side chat about it: what
 the author answered is checked against the code, so "done" on a finding that still applies shows as **Author says fixed
