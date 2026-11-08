@@ -45,8 +45,9 @@ class EffectiveModeTest(unittest.TestCase):
     def test_a_word_outside_the_modes_is_ignored(self):
         self.assertEqual(store.review_mode({'pr': 12, 'mode': 'post'}, {'mode': 'both'}), 'post')
 
-    def test_an_old_page_without_a_pr_is_fix(self):
+    def test_a_page_without_a_pr_is_always_fix(self):
         self.assertEqual(store.review_mode({}, {}), 'fix')
+        self.assertEqual(store.review_mode({'mode': 'post'}, {'mode': 'post'}), 'fix')
 
     def test_an_old_pr_page_is_post_unless_a_finding_is_marked_fix(self):
         self.assertEqual(store.review_mode({'pr': 12}, {'findings': {'W1': {'status': 'post'}}}), 'post')

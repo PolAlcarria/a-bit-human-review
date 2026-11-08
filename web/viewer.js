@@ -73,9 +73,10 @@ const tri = id => (T.findings[id] ??= { status: null, note: '', mode: 'note', an
 // post. A finding stored with the other mode's word counts as undecided; the stored value stays until you pick again.
 const MODES = ['post', 'fix'];
 function pageMode() {
+  if (!D.pr) return 'fix';  // nothing to post to
   if (MODES.includes(T.mode)) return T.mode;
   if (MODES.includes(D.mode)) return D.mode;
-  return !D.pr || Object.values(T.findings).some(t => t?.status === 'fix') ? 'fix' : 'post';
+  return Object.values(T.findings).some(t => t?.status === 'fix') ? 'fix' : 'post';
 }
 const fixMode = () => pageMode() === 'fix';
 const storedStatus = f => T.findings[f.id]?.status || null;
