@@ -163,6 +163,15 @@ class ConfigLoadTest(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn('auto_open', problems[0])
 
+    def test_rereview_limits_take_numbers_in_their_range(self):
+        values, _, problems = config.load(write_config('{"rereview": {"max_turns": 30, "max_budget_usd": 2}}'), {})
+        self.assertEqual((values['rereview.max_turns'], values['rereview.max_budget_usd'], problems), (30, 2, []))
+        values, _, problems = config.load(write_config('{"rereview": {"max_turns": -1, "max_budget_usd": "lots"}}'),
+                                          {'FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD': 'x'})
+        self.assertEqual((values['rereview.max_turns'], values['rereview.max_budget_usd']), (80, 0.0))
+        self.assertEqual(len(problems), 3)
+        self.assertIn('expected a whole number from 0 to 1000', problems[0])
+
     def test_trigger_defaults_to_mention(self):
         values, _, _ = config.load(missing_config(), {})
         self.assertEqual(values['trigger'], 'mention')

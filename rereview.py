@@ -869,6 +869,31 @@ def needs_body(f: dict, affected: dict, context: str) -> bool:
     return f['id'] in affected or (f.get('rereview') or {}).get('status') in ('changed', 'new')
 
 
+# A result that ended at a limit (claude's result subtypes), in the reviewer's words.
+LIMIT_ERRORS = {
+    'error_max_turns': 'The re-review stopped at its turn limit (rereview.max_turns) before it answered. Raise the '
+                       'limit, or set it to 0 for none, and start again.',
+    'error_max_budget_usd': 'The re-review stopped at its spending limit (rereview.max_budget_usd) before it answered. '
+                            'Raise the limit, or set it to 0 for none, and start again.',
+}
+
+
+def limit_args() -> list[str]:
+    """The claude flags for the re-review's limits (config rereview.max_turns, rereview.max_budget_usd); 0 is none."""
+    args = []
+    if turns := config.get('rereview.max_turns'):
+        args += ['--max-turns', str(turns)]
+    if budget := config.get('rereview.max_budget_usd'):
+        args += ['--max-budget-usd', f'{budget:g}']
+    return args
+
+
+def limit_error(result: dict | None, error: str | None) -> str | None:
+    """A fork's error, said in the reviewer's words when the run ended at one of the limits."""
+    subtype = (result or {}).get('subtype')
+    return LIMIT_ERRORS[subtype] if error and subtype in LIMIT_ERRORS else error
+
+
 def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: set[str], context: str = 'fork') -> str:
     ref, head, pr = st['from'], st['to'], data.get('pr')
     commits = spec.get('commits') or []
@@ -960,10 +985,12 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
     model = config.get('rereview_model')
     if model:
         cmd += ['--model', model]
+    cmd += limit_args()
     result, error, fork = draft.run_fork(cmd, st['cwd'], build_prompt(data, st, spec, checkout if is_snapshot else None, taken),
                                          TIMEOUT_SECONDS, lambda **fields: _update(page, job, **fields),
                                          'no findings returned')
     answer, built = None, None
+    error = limit_error(result, error)
     if not error:
         try:
             answer = parse_answer(result['structured_output'], data, taken)

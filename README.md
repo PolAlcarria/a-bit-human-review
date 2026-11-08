@@ -209,6 +209,8 @@ prints the file's path and the effective values.
 | `extract.model` | `sonnet` | `FINDING_VIEWER_EXTRACT_MODEL` | Model that reads them |
 | `extract.confirm` | `false` | `FINDING_VIEWER_EXTRACT_CONFIRM` (`1` = on) | On, the Stop hook never starts Claude to read a review: it says so, and `/findings` reads and opens it. A `ReportFindings` review opens as before, since it needs no Claude |
 | `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review forks |
+| `rereview.max_turns` | `80` | `FINDING_VIEWER_REREVIEW_MAX_TURNS` | Most turns (tool calls and answers) a re-review may take before it stops without an answer; `0` for no limit |
+| `rereview.max_budget_usd` | `0` (none) | `FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD` | Most dollars a re-review may spend, as `claude --max-budget-usd` counts them (on a fork this may include what the review session already spent); `0` for no limit |
 | `chat_model` | Claude's default | `FINDING_VIEWER_CHAT_MODEL` | Side chat model, until you pick one in the page's ⚙ panel |
 | `report_glob` | `.claude/.history/code-reviews/*/*.md` | `FINDING_VIEWER_REPORT_GLOB` | Saved review reports, relative to the repository root |
 | `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR, and for `/findings diff` (else `origin/HEAD`, develop, main, master) |

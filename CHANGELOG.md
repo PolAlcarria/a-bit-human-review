@@ -6,6 +6,9 @@
 - The `trigger` setting says when the Stop hook opens a page: `mention` (the default, as before) when the prompt names
   the viewer, `explicit` only when the prompt has `/findings` written in it, `off` never (only `/findings` opens
   pages). A value outside these three is ignored, and `doctor` says so.
+- A re-review stops after 80 turns (`rereview.max_turns`), and can be given a spending limit
+  (`rereview.max_budget_usd`, none by default). A run that hits one fails with which limit it was, and the page is
+  unchanged. `0` turns either off.
 - The `extract.confirm` setting (off by default): on, the Stop hook never starts Claude to read a review (about a
   minute and $0.10–0.30). It says so instead, and `/findings` reads and opens it.
 

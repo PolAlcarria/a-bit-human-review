@@ -26,6 +26,8 @@ DEFAULTS: dict[str, Any] = {
     'extract.confirm': False,
     'draft_model': '',
     'rereview_model': '',
+    'rereview.max_turns': 80,
+    'rereview.max_budget_usd': 0.0,
     'chat_model': '',
     'report_glob': '.claude/.history/code-reviews/*/*.md',
     'default_base': '',
@@ -41,12 +43,19 @@ ENV = {
     'extract.confirm': 'FINDING_VIEWER_EXTRACT_CONFIRM',
     'draft_model': 'FINDING_VIEWER_DRAFT_MODEL',
     'rereview_model': 'FINDING_VIEWER_REREVIEW_MODEL',
+    'rereview.max_turns': 'FINDING_VIEWER_REREVIEW_MAX_TURNS',
+    'rereview.max_budget_usd': 'FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD',
     'chat_model': 'FINDING_VIEWER_CHAT_MODEL',
     'report_glob': 'FINDING_VIEWER_REPORT_GLOB',
     'default_base': 'FINDING_VIEWER_DEFAULT_BASE',
     'delete_forks': 'FINDING_VIEWER_DELETE_FORKS',
     'auto_open': 'FINDING_VIEWER_AUTO_OPEN',
     'trigger': 'FINDING_VIEWER_TRIGGER',
+}
+# Whole-number keys and the values they take, both ends included. 0 turns means no limit.
+RANGES: dict[str, tuple[int, int]] = {
+    'port': (1, 65535),
+    'rereview.max_turns': (0, 1000),
 }
 # Keys that take one of a few words, the default first.
 CHOICES: dict[str, tuple[str, ...]] = {
@@ -116,6 +125,11 @@ def _parse(key: str, text: str) -> Any:
             return int(text)
         except ValueError:
             return None
+    if isinstance(default, float):
+        try:
+            return float(text)
+        except ValueError:
+            return None
     if isinstance(default, list):
         return [part for part in text.split(os.pathsep) if part]
     if key in CHOICES:
@@ -128,7 +142,11 @@ def _valid(key: str, value: Any) -> bool:
     if isinstance(default, bool):
         return isinstance(value, bool)
     if isinstance(default, int):
-        return isinstance(value, int) and not isinstance(value, bool) and 0 < value < 65536
+        low, high = RANGES[key]
+        return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+    if isinstance(default, float):
+        # A whole number in the file is a number too; 0 means no limit.
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < 1e6
     if isinstance(default, list):
         return isinstance(value, list) and all(isinstance(v, str) for v in value)
     if key == 'report_glob':
@@ -144,7 +162,9 @@ def _expected(key: str) -> str:
     if isinstance(default, bool):
         return 'expected true or false'
     if isinstance(default, int):
-        return 'expected a port number'
+        return 'expected a port number' if key == 'port' else 'expected a whole number from {} to {}'.format(*RANGES[key])
+    if isinstance(default, float):
+        return 'expected a number of dollars, 0 for no limit'
     if isinstance(default, list):
         return 'expected a list of folders'
     if key == 'report_glob':

@@ -6,6 +6,7 @@ import copy
 import unittest
 
 import freshness
+import rereview
 from rereview import carry_triage, default_anchor, format_comments, new_findings, next_id, parse_answer
 
 DATA = {'findings': [{'id': 'C1', 'severity': 'critical'}, {'id': 'W1', 'severity': 'warning'},
@@ -350,3 +351,23 @@ class FormatCommentsTest(unittest.TestCase):
         text = format_comments([], talk)
         self.assertLess(len(text), 23000)
         self.assertTrue(text.endswith('- … (more comments, left out)'))
+
+
+class LimitsTest(unittest.TestCase):
+    """rereview.max_turns and rereview.max_budget_usd: the flags the fork gets, and the error when it stops at one."""
+
+    def test_the_default_caps_turns_and_not_spending(self):
+        self.assertEqual(rereview.limit_args(), ['--max-turns', '80'])
+
+    def test_zero_means_no_limit_and_a_budget_is_passed_as_dollars(self):
+        with support.env(FINDING_VIEWER_REREVIEW_MAX_TURNS='0', FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD='1.5'):
+            self.assertEqual(rereview.limit_args(), ['--max-budget-usd', '1.5'])
+
+    def test_a_run_that_stopped_at_a_limit_says_which(self):
+        self.assertIn('rereview.max_turns', rereview.limit_error({'subtype': 'error_max_turns'}, 'error_max_turns'))
+        self.assertIn('rereview.max_budget_usd',
+                      rereview.limit_error({'subtype': 'error_max_budget_usd', 'result': 'x'}, 'x'))
+
+    def test_other_errors_stay_as_they_are(self):
+        self.assertEqual(rereview.limit_error({'subtype': 'success'}, 'no findings returned'), 'no findings returned')
+        self.assertIsNone(rereview.limit_error({'subtype': 'error_max_turns'}, None))

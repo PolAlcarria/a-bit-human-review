@@ -521,7 +521,9 @@ new head (decisions E1–E4 of 2026-10-19).
 - **The fork**: `claude -p --resume <review session> --fork-session`, read-only tools (`chat.READ_ONLY_TOOLS`), hooks
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
-  setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
+  setting; `--max-turns` from `rereview.max_turns` (80 by default) and `--max-budget-usd` from
+  `rereview.max_budget_usd` (none by default), each left out at 0 (`limit_args()`). A run that stops at one fails with
+  which limit it was and how to raise it (`limit_error()`), and the page is unchanged. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
   anchors and what the new commits touched, and its text only where the fork needs it (`needs_body()`): the fork has
   the review in its context, so a finding the new commits do not touch, and whose words no earlier re-review rewrote,
   says "Its text is in your review above" instead (after a force-push every finding carries its text). A finding fixed
