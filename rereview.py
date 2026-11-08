@@ -96,13 +96,13 @@ SCHEMA = {
     'required': ['findings'],
 }
 
-PROMPT = """{moved} The reviewer wants those commits reviewed, and the findings on the finding-viewer page brought up \
+PROMPT = """{intro}{moved} The reviewer wants those commits reviewed, and the findings on the finding-viewer page brought up \
 to date, before anything is posted. Check what you need with the read-only tools, but do not post or change anything.
 
 {where} What the new commits changed: `git diff {ref12} {head12}` and `git log {ref12}..{head12}`. Run one command per \
 Bash call: pipes, ";", "&&" and "$(...)" are blocked.
 
-1. Review what the new commits changed, the way you reviewed the PR. Each new problem they bring in is a new finding.
+1. Review what the new commits changed, {how}. Each new problem they bring in is a new finding.
 2. Re-check each finding below against the new head.
 3. A finding posted on the PR has its thread under it, with the replies. Say in author_said what the PR author \
 answered there, then check that answer against the code at the new head instead of taking its word for it: a finding \
@@ -271,14 +271,21 @@ def stale(page: str, payload: dict) -> str | None:
             'saved. Reload the page.')
 
 
+def context() -> str:
+    """Where the re-review runs (config rereview.context): fork, a fork of the review session, which knows the whole
+    review and costs that session's context; fresh, a new session that knows only what the prompt says."""
+    return config.get('rereview.context')
+
+
 def unavailable(data: dict) -> str | None:
     """Why the page cannot review new commits, or None when it can."""
     if data.get('kind') == 'diff':
         return 'A diff review has no findings to re-check: reload the diff to read the new changes.'
     if not store.reviewed_ref(data):
         return 'This page shows the working tree, so there is no reviewed commit to compare new commits with.'
-    if not sessions.review_session(data):
-        return "The review session's transcript is gone, so there is no review to fork."
+    if context() == 'fork' and not sessions.review_session(data):
+        return ("The review session's transcript is gone, so there is no review to fork. Set rereview.context to "
+                'fresh to re-review in a new session.')
     return None
 
 
@@ -366,9 +373,11 @@ def start(page: str, data: dict, dec: dict, discard_drafts: bool) -> tuple[int, 
     """Start a re-review of the commits the PR got since the reviewed one. ``dec`` is the page's triage, of which the
     prompt quotes each finding's decision and note; ``discard_drafts`` confirms that unposted drafts go when the
     re-review succeeds."""
-    review = sessions.review_session(data)
-    if (why := unavailable(data)) or not review:
+    review, where = sessions.review_session(data), context()
+    if (why := unavailable(data)) or (where == 'fork' and not review):
         return 409, {'error': why or "The review session's transcript is gone, so there is no review to fork."}
+    # A fresh session runs in the repository; the review session's id is kept all the same, so it is never deleted.
+    review = review or (data.get('review_session') or data.get('session_id'), data.get('repo_root') or str(Path.home()))
     claude = claude_cli.binary()
     if not Path(claude).exists():
         return 500, {'error': 'claude CLI not found on PATH'}
@@ -402,7 +411,8 @@ def start(page: str, data: dict, dec: dict, discard_drafts: bool) -> tuple[int, 
                          'drafts': True}
         sessions.delete_session((old or {}).get('fork'), keep=review[0])
         st = {'status': 'reviewing', 'started': time.time(), 'job': job, 'pid': None, 'fork': None, 'steps': [],
-              'review_session': review[0], 'cwd': review[1], 'from': ref, 'to': head, 'commits': len(commits),
+              'review_session': review[0], 'cwd': review[1], 'context': where, 'from': ref, 'to': head,
+              'commits': len(commits),
               'rewritten': fresh.get('status') == 'rewritten', 'discard_drafts': bool(discard_drafts)}
         _write(page, st)
     try:
@@ -949,7 +959,11 @@ def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: 
             budget -= size
             rows += [f'  {what}{how}', *lines]
     next_ids = ', '.join(f'{next_id(letter, taken)} ({SEVERITY_LABEL[sev]})' for sev, letter in LETTER.items())
-    return PROMPT.format(moved=moved, where=where, ref12=ref[:12], head12=head[:12], next_ids=next_ids, ref=ref,
+    intro = '' if context == 'fork' else (
+        f"You are re-checking a code review of {f'PR #{pr}' if pr else 'a branch'} that someone else wrote, for the "
+        'reviewer on a finding-viewer page. You have not seen the review: its findings are below, with their text.\n\n')
+    how = 'the way you reviewed the PR' if context == 'fork' else 'as a careful reviewer of this code would'
+    return PROMPT.format(intro=intro, how=how, moved=moved, where=where, ref12=ref[:12], head12=head[:12], next_ids=next_ids, ref=ref,
                          head=head, commits=listed, findings='\n'.join(rows) or '(none)',
                          comments=spec.get('pr_comments') or 'Comments on the PR: none.')
 
@@ -978,7 +992,9 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
     _update(page, job, steps=['Checking out the new head', 'Reading the comments on the PR'])
     comments, threads = pr_comments(data, draft.posted_reviews(page))
     spec = {**spec, 'pr_comments': comments, 'threads': threads, 'chats': side_chats(page)}
-    cmd = [claude_cli.binary(), '-p', *claude_cli.common_args(), '--resume', st['review_session'], '--fork-session',
+    where = st.get('context') or 'fork'
+    resume = ['--resume', st['review_session'], '--fork-session'] if where == 'fork' else []
+    cmd = [claude_cli.binary(), '-p', *claude_cli.common_args(), *resume,
            '--output-format', 'stream-json', '--verbose', '--allowedTools', *chat.READ_ONLY_TOOLS,
            '--add-dir', str(paths.OUT), *(['--add-dir', checkout] if is_snapshot else []),
            '--json-schema', json.dumps(SCHEMA)]
@@ -986,7 +1002,8 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
     if model:
         cmd += ['--model', model]
     cmd += limit_args()
-    result, error, fork = draft.run_fork(cmd, st['cwd'], build_prompt(data, st, spec, checkout if is_snapshot else None, taken),
+    result, error, fork = draft.run_fork(cmd, st['cwd'], build_prompt(data, st, spec, checkout if is_snapshot else None,
+                                                                    taken, where),
                                          TIMEOUT_SECONDS, lambda **fields: _update(page, job, **fields),
                                          'no findings returned')
     answer, built = None, None

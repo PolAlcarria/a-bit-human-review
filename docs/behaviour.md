@@ -518,7 +518,11 @@ new head (decisions E1–E4 of 2026-10-19).
   until Draft comments ends, or stop it in Sessions."; posting and telling cannot be stopped), and while unposted drafts
   are not confirmed for discarding (409 with `drafts: true`). The server hands the worker each finding's decision and
   note (`decisions()`, a note cut at 600 characters), the new commits and the freshness `affected` map.
-- **The fork**: `claude -p --resume <review session> --fork-session`, read-only tools (`chat.READ_ONLY_TOOLS`), hooks
+- **The fork**: with `rereview.context` `fork` (the default), `claude -p --resume <review session> --fork-session`;
+  with `fresh`, a new `claude -p` in the page's repository, whose prompt starts by saying it has not seen the review
+  and carries every open finding's text, and which needs no review transcript (with `fork`, a page whose transcript is
+  gone offers no re-review and says to set `fresh`). The review session's id is kept on record either way, so it is
+  never deleted. The Sessions panel names it "Re-review fork" or "Re-review session". Read-only tools (`chat.READ_ONLY_TOOLS`), hooks
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
   setting; `--max-turns` from `rereview.max_turns` (80 by default) and `--max-budget-usd` from

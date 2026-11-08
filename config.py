@@ -26,6 +26,7 @@ DEFAULTS: dict[str, Any] = {
     'extract.confirm': False,
     'draft_model': '',
     'rereview_model': '',
+    'rereview.context': 'fork',
     'rereview.max_turns': 80,
     'rereview.max_budget_usd': 0.0,
     'chat_model': '',
@@ -43,6 +44,7 @@ ENV = {
     'extract.confirm': 'FINDING_VIEWER_EXTRACT_CONFIRM',
     'draft_model': 'FINDING_VIEWER_DRAFT_MODEL',
     'rereview_model': 'FINDING_VIEWER_REREVIEW_MODEL',
+    'rereview.context': 'FINDING_VIEWER_REREVIEW_CONTEXT',
     'rereview.max_turns': 'FINDING_VIEWER_REREVIEW_MAX_TURNS',
     'rereview.max_budget_usd': 'FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD',
     'chat_model': 'FINDING_VIEWER_CHAT_MODEL',
@@ -60,6 +62,7 @@ RANGES: dict[str, tuple[int, int]] = {
 # Keys that take one of a few words, the default first.
 CHOICES: dict[str, tuple[str, ...]] = {
     'trigger': ('mention', 'explicit', 'off'),
+    'rereview.context': ('fork', 'fresh'),
 }
 FALSE_WORDS = ('0', 'false', 'no', 'off')
 

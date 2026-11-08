@@ -446,7 +446,8 @@ def activity(page: str) -> dict:
     if st and sessions.transcript(st.get('fork')):
         rows.append(session('fork', 'Draft fork', st['fork'], st.get('cwd')))
     if rr and sessions.transcript(rr.get('fork')):
-        fork = session('rereview', 'Re-review fork', rr['fork'], rr.get('cwd'))
+        fork = session('rereview', 'Re-review fork' if rr.get('context', 'fork') == 'fork' else 'Re-review session',
+                       rr['fork'], rr.get('cwd'))
         if rr.get('status') != 'reviewing':
             # The re-review ended with its fork open in Claude Code, so the fork was kept.
             fork['note'] = (f"kept: open in {fork['name'] or 'Claude Code'}" if rr['fork'] in lives

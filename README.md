@@ -184,7 +184,8 @@ point is in [examples/chat-buttons.json](examples/chat-buttons.json).
   built-in parser (markdown findings with `file:line` anchors), or `extract.confirm` to true so that only `/findings`,
   never the Stop hook, starts it. A diff review needs no Claude to build.
 - **Draft comments, Review the new commits** and side chats in fork mode resume a fork of the review session, so each
-  costs about one more turn of that session. A side chat in its default mode starts a small session that knows only the
+  costs about one more turn of that session, whose whole context is read again (and, hours after the review, no
+  longer cached). `rereview.context` set to `fresh` runs the re-review in a new session instead. A side chat in its default mode starts a small session that knows only the
   finding, and each later message resumes it.
 - **Transcripts it creates** under `~/.claude/projects` (the forks, and a side chat's first session when stopped) are
   deleted once done; `delete_forks` false keeps them.
@@ -209,6 +210,7 @@ prints the file's path and the effective values.
 | `extract.model` | `sonnet` | `FINDING_VIEWER_EXTRACT_MODEL` | Model that reads them |
 | `extract.confirm` | `false` | `FINDING_VIEWER_EXTRACT_CONFIRM` (`1` = on) | On, the Stop hook never starts Claude to read a review: it says so, and `/findings` reads and opens it. A `ReportFindings` review opens as before, since it needs no Claude |
 | `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review forks |
+| `rereview.context` | `fork` | `FINDING_VIEWER_REREVIEW_CONTEXT` | Where **Review the new commits** runs: `fork`, a fork of the review session, which knows the whole review but reads its whole context again; `fresh`, a new session that knows only the findings, the new commits and the PR's comments: much cheaper on a long review, and it works after the review's transcript is gone |
 | `rereview.max_turns` | `80` | `FINDING_VIEWER_REREVIEW_MAX_TURNS` | Most turns (tool calls and answers) a re-review may take before it stops without an answer; `0` for no limit |
 | `rereview.max_budget_usd` | `0` (none) | `FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD` | Most dollars a re-review may spend, as `claude --max-budget-usd` counts them (on a fork this may include what the review session already spent); `0` for no limit |
 | `chat_model` | Claude's default | `FINDING_VIEWER_CHAT_MODEL` | Side chat model, until you pick one in the page's ⚙ panel |

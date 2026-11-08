@@ -371,3 +371,30 @@ class LimitsTest(unittest.TestCase):
     def test_other_errors_stay_as_they_are(self):
         self.assertEqual(rereview.limit_error({'subtype': 'success'}, 'no findings returned'), 'no findings returned')
         self.assertIsNone(rereview.limit_error({'subtype': 'error_max_turns'}, None))
+
+
+class ContextTest(unittest.TestCase):
+    """rereview.context: fork (the default) needs the review session's transcript; fresh does not, and its prompt says
+    it has not seen the review."""
+
+    def page(self):
+        return support.sample_page('20261108-100031-context', session_id='sess-gone-0000', ref='a' * 40)
+
+    def test_fork_without_the_transcript_is_unavailable_and_names_the_setting(self):
+        why = rereview.unavailable(self.page())
+        self.assertIn('transcript is gone', why or '')
+        self.assertIn('rereview.context', why or '')
+
+    def test_fresh_needs_no_transcript(self):
+        with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
+            self.assertIsNone(rereview.unavailable(self.page()))
+
+    def test_a_fresh_prompt_says_it_has_not_seen_the_review(self):
+        st = {'from': 'a' * 40, 'to': 'b' * 40}
+        fresh = rereview.build_prompt(self.page(), st, {}, None, set(), 'fresh')
+        fork = rereview.build_prompt(self.page(), st, {}, None, set())
+        self.assertTrue(fresh.startswith('You are re-checking a code review of PR #4242'))
+        self.assertIn('as a careful reviewer of this code would', fresh)
+        self.assertIn('the way you reviewed the PR', fork)
+        self.assertTrue(fork.startswith('PR #4242 has'))
+

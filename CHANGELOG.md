@@ -6,6 +6,9 @@
 - The `trigger` setting says when the Stop hook opens a page: `mention` (the default, as before) when the prompt names
   the viewer, `explicit` only when the prompt has `/findings` written in it, `off` never (only `/findings` opens
   pages). A value outside these three is ignored, and `doctor` says so.
+- The `rereview.context` setting: `fork` (the default, as before) re-reviews in a fork of the review session;
+  `fresh` in a new session that knows only the findings, the new commits and the PR's comments, which costs far less
+  on a long review and works after the review's transcript is gone.
 - A re-review stops after 80 turns (`rereview.max_turns`), and can be given a spending limit
   (`rereview.max_budget_usd`, none by default). A run that hits one fails with which limit it was, and the page is
   unchanged. `0` turns either off.
