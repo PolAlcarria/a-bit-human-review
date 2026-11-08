@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-08
+
 ### Added
 - The `trigger` setting says when the Stop hook opens a page: `explicit` (the default) only when the prompt has
   `/findings` written in it, `mention` also when the prompt names the viewer (the old behaviour), `off` never (only
