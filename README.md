@@ -180,7 +180,8 @@ point is in [examples/chat-buttons.json](examples/chat-buttons.json).
 
 - **Reading the findings:** a headless `claude -p` (Sonnet) reads them out of any review format and finds the code
   each one points at: about a minute and $0.10–0.30 per review. Set `extract.enabled` to false to use only the
-  built-in parser (markdown findings with `file:line` anchors). A diff review needs no Claude to build.
+  built-in parser (markdown findings with `file:line` anchors), or `extract.confirm` to true so that only `/findings`,
+  never the Stop hook, starts it. A diff review needs no Claude to build.
 - **Draft comments, Review the new commits** and side chats in fork mode resume a fork of the review session, so each
   costs about one more turn of that session. A side chat in its default mode starts a small session that knows only the
   finding, and each later message resumes it.
@@ -205,6 +206,7 @@ prints the file's path and the effective values.
 | `repo_dirs` | `[]` | `FINDING_VIEWER_REPO_DIRS` (`:`-separated) | More folders to look in for a local clone of a PR's repository (as `<folder>/<repo name>`), after the session's own folder and the folder beside the session's repository (its parent folder); else `gh repo clone`. Example: `["~/Repos"]` |
 | `extract.enabled` | `true` | `FINDING_VIEWER_EXTRACT` (`0` = off) | Let Claude read the findings out of any review format |
 | `extract.model` | `sonnet` | `FINDING_VIEWER_EXTRACT_MODEL` | Model that reads them |
+| `extract.confirm` | `false` | `FINDING_VIEWER_EXTRACT_CONFIRM` (`1` = on) | On, the Stop hook never starts Claude to read a review: it says so, and `/findings` reads and opens it. A `ReportFindings` review opens as before, since it needs no Claude |
 | `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review forks |
 | `chat_model` | Claude's default | `FINDING_VIEWER_CHAT_MODEL` | Side chat model, until you pick one in the page's ⚙ panel |
 | `report_glob` | `.claude/.history/code-reviews/*/*.md` | `FINDING_VIEWER_REPORT_GLOB` | Saved review reports, relative to the repository root |

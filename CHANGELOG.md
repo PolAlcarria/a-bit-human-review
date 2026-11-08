@@ -6,6 +6,8 @@
 - The `trigger` setting says when the Stop hook opens a page: `mention` (the default, as before) when the prompt names
   the viewer, `explicit` only when the prompt has `/findings` written in it, `off` never (only `/findings` opens
   pages). A value outside these three is ignored, and `doctor` says so.
+- The `extract.confirm` setting (off by default): on, the Stop hook never starts Claude to read a review (about a
+  minute and $0.10–0.30). It says so instead, and `/findings` reads and opens it.
 
 ### Changed
 - The project's name alone ("a-bit-human-review") no longer counts as naming the viewer: a session working on this

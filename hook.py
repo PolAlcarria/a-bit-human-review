@@ -433,6 +433,12 @@ def cmd_hook() -> int:
                    '/findings opens the latest one in this session.')
         print(json.dumps({'systemMessage': msg}))
         return 0
+    if needs_claude(spec) and config.get('extract.confirm'):
+        # Reading the review costs a Claude run: with extract.confirm on, only /findings, which you type, starts one.
+        # Nothing is recorded as shown, so /findings and a later turn still open it.
+        print(json.dumps({'systemMessage': 'Finding viewer: Claude has to read this review to open it (about a minute, '
+                                           '$0.10–0.30). Run /findings to open it.'}))
+        return 0
     if already_shown(event.get('session_id', ''), fingerprint(spec)):
         return 0
     spec['session_id'] = event.get('session_id')

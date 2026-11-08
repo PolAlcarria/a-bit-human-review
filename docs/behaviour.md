@@ -115,7 +115,9 @@ finds the line for findings that name a file or symbol but no line (tagged "line
 is told not to review, judge or reword. Numbered items keep their number with the severity letter (should-fix 3 → `W3`).
 If Claude fails, the regex findings are used and the page says so; if both find nothing, no page opens. `ReportFindings`
 input is already structured and skips this step. The `extract.enabled` setting turns it off
-(`FINDING_VIEWER_EXTRACT=0`). About 45–60 s and $0.10–0.30 per review.
+(`FINDING_VIEWER_EXTRACT=0`). With `extract.confirm` on, the Stop hook never starts it: a review that needs it gets the
+`systemMessage` "Claude has to read this review to open it (about a minute, $0.10–0.30). Run /findings to open it.",
+nothing is recorded in `state.json`, and `/findings` reads and opens it. About 45–60 s and $0.10–0.30 per review.
 
 **Path resolution** (`resolve_path()`): anchors are matched against the repo's file list, also trying a `src/` prefix
 and suffix matches. When a suffix is ambiguous, files in the diff win, then the shortest path; the alternatives are

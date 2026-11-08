@@ -109,6 +109,31 @@ class TriggerTest(unittest.TestCase):
         self.assertEqual((message, launch.call_count), (None, 0))
 
 
+class ExtractConfirmTest(unittest.TestCase):
+    """extract.confirm: a review Claude has to read is not read by the hook; it says to run /findings."""
+    TURN = [user('Review my branch and open it in the finding viewer'),
+            assistant(text('## Should-fix\n\n- W1 `src/app/billing.py:42` The total is not rounded, so 0.1 + 0.2 '
+                           'shows 0.30000000000000004 on the invoice. ' + 'More detail on why it matters. ' * 20))]
+
+    def test_on_the_hook_starts_no_claude_and_says_to_run_findings(self):
+        with support.env(FINDING_VIEWER_EXTRACT='1', FINDING_VIEWER_EXTRACT_CONFIRM='1'):
+            message, launch = run_hook(write_jsonl('conf_a.jsonl', self.TURN), 'sess-conf-a')
+        self.assertEqual(launch.call_count, 0)
+        self.assertIn('Run /findings to open it', message or '')
+
+    def test_off_the_hook_starts_the_reading(self):
+        with support.env(FINDING_VIEWER_EXTRACT='1'):
+            message, launch = run_hook(write_jsonl('conf_b.jsonl', self.TURN), 'sess-conf-b')
+        self.assertEqual(launch.call_count, 1)
+        self.assertIn('Claude is reading the review', message or '')
+
+    def test_a_review_that_needs_no_claude_opens_either_way(self):
+        turn = [self.TURN[0], assistant(REPORT), tool_result('toolu_rf1', 'ok'), assistant(text('Two findings.'))]
+        with support.env(FINDING_VIEWER_EXTRACT='1', FINDING_VIEWER_EXTRACT_CONFIRM='1'):
+            _, launch = run_hook(write_jsonl('conf_c.jsonl', turn), 'sess-conf-c')
+        self.assertEqual(launch.call_count, 1)
+
+
 class BackgroundReviewHookTest(unittest.TestCase):
     def test_launch_then_notification_opens_one_page_with_the_findings(self):
         message, launch = run_hook(write_jsonl('bg_a.jsonl', LAUNCH + NOTIFIED), 'sess-bg-a')
