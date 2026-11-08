@@ -277,13 +277,14 @@ def context() -> str:
     return config.get('rereview.context')
 
 
-def unavailable(data: dict) -> str | None:
-    """Why the page cannot review new commits, or None when it can."""
+def unavailable(data: dict, needs_session: bool = True) -> str | None:
+    """Why the page cannot review new commits, or None when it can. ``needs_session`` false: an update of the lines
+    only, which runs no Claude, so the review's transcript does not matter."""
     if data.get('kind') == 'diff':
         return 'A diff review has no findings to re-check: reload the diff to read the new changes.'
     if not store.reviewed_ref(data):
         return 'This page shows the working tree, so there is no reviewed commit to compare new commits with.'
-    if context() == 'fork' and not sessions.review_session(data):
+    if needs_session and context() == 'fork' and not sessions.review_session(data):
         return ("The review session's transcript is gone, so there is no review to fork. Set rereview.context to "
                 'fresh to re-review in a new session.')
     return None
@@ -313,6 +314,10 @@ def heads_up(data: dict) -> str | None:
     if not done:
         return None
     last = done[-1]
+    if last.get('lines_only'):
+        return (f"The page was moved to {last['to'][:10]} after the PR got new commits (it showed {last['from'][:10]} "
+                'before), without a re-review: the new commits change none of the findings\' files. The ids and lines '
+                f"below are at {last['to'][:10]}.")
     return (f"The page was re-reviewed at {last['to'][:10]} after the PR got new commits (it showed {last['from'][:10]} "
             f"before): {said(last.get('counts') or {})}. The ids and lines below are at {last['to'][:10]}.")
 
@@ -320,7 +325,8 @@ def heads_up(data: dict) -> str | None:
 def view(data: dict, st: dict | None) -> dict:
     """The re-review as the page needs it: whether it can run (and why not), and the last one's state."""
     why, where = unavailable(data), context()
-    out = {'can': not why, 'why': why, 'context': where}
+    # Moving the lines only needs no Claude, so it does not need the review's transcript either.
+    out = {'can': not why, 'why': why, 'context': where, 'lines_ok': not unavailable(data, needs_session=False)}
     if not why and where == 'fork' and (review := sessions.review_session(data)):
         # What the fork reads again before it starts: the review session's context at its last answer.
         out['context_tokens'] = sessions.context_tokens(review[0])
@@ -372,17 +378,18 @@ def decisions(dec: dict) -> dict[str, dict]:
     return out
 
 
-def start(page: str, data: dict, dec: dict, discard_drafts: bool) -> tuple[int, dict]:
+def start(page: str, data: dict, dec: dict, discard_drafts: bool, lines_only: bool = False) -> tuple[int, dict]:
     """Start a re-review of the commits the PR got since the reviewed one. ``dec`` is the page's triage, of which the
     prompt quotes each finding's decision and note; ``discard_drafts`` confirms that unposted drafts go when the
-    re-review succeeds."""
-    review, where = sessions.review_session(data), context()
-    if (why := unavailable(data)) or (where == 'fork' and not review):
+    re-review succeeds. ``lines_only``: no finding's file changed, so the findings only move to the new head through
+    the diff, with no Claude (and no review of what the commits added)."""
+    review, where = sessions.review_session(data), 'none' if lines_only else context()
+    if (why := unavailable(data, needs_session=not lines_only)) or (where == 'fork' and not review):
         return 409, {'error': why or "The review session's transcript is gone, so there is no review to fork."}
     # A fresh session runs in the repository; the review session's id is kept all the same, so it is never deleted.
     review = review or (data.get('review_session') or data.get('session_id'), data.get('repo_root') or str(Path.home()))
     claude = claude_cli.binary()
-    if not Path(claude).exists():
+    if not lines_only and not Path(claude).exists():
         return 500, {'error': 'claude CLI not found on PATH'}
     if running := locked(page):  # said before the check below, which may call GitHub (and again under the lock)
         return 423, locked_error(running)
@@ -394,6 +401,9 @@ def start(page: str, data: dict, dec: dict, discard_drafts: bool) -> tuple[int, 
     if not freshness.has_commit(data.get('repo_root') or '', head):
         return 409, {'error': f'The new head {head[:8]} is not in the local clone, so it cannot be read. Check again '
                               'to fetch it.'}
+    if lines_only and (fresh.get('status') != 'behind' or fresh.get('affected') or 'affected' not in fresh):
+        return 409, {'error': "The new commits change a finding's file or rewrote the history, so the lines cannot "
+                              'just move: review the new commits with Claude.'}
     commits = [{'sha': c.get('sha'), 'title': c.get('title')} for c in fresh.get('new_commits') or []]
     job = jobs.new_id()
     with jobs.page_lock(page):
@@ -415,7 +425,7 @@ def start(page: str, data: dict, dec: dict, discard_drafts: bool) -> tuple[int, 
         sessions.delete_session((old or {}).get('fork'), keep=review[0])
         st = {'status': 'reviewing', 'started': time.time(), 'job': job, 'pid': None, 'fork': None, 'steps': [],
               'review_session': review[0], 'cwd': review[1], 'context': where, 'from': ref, 'to': head,
-              'commits': len(commits),
+              'commits': len(commits), **({'lines_only': True} if lines_only else {}),
               'rewritten': fresh.get('status') == 'rewritten', 'discard_drafts': bool(discard_drafts)}
         _write(page, st)
     try:
@@ -1042,7 +1052,13 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
                 _write(page, cur)
         return
     where = st.get('context') or 'fork'
-    result, error, fork, answer, threads = _ask_claude(page, job, st, data, spec, where)
+    if st.get('lines_only'):
+        # No finding's file changed: the findings only move to the new head through the diff, without Claude. An empty
+        # answer leaves every finding as it was (new_findings), with its lines carried over.
+        _update(page, job, steps=['Moving the findings to the new head'])
+        result, error, fork, answer, threads = None, None, None, [], {}
+    else:
+        result, error, fork, answer, threads = _ask_claude(page, job, st, data, spec, where)
     built = None
     if not error:
         _update(page, job, steps=((_load(page) or {}).get('steps') or [])[-11:] + ['Updating the page'])
@@ -1055,6 +1071,7 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
             # Drafts cannot change while the page is locked, so whether they go is known now.
             entry = {'from': ref, 'to': head, 'at': jobstate.now(), 'commits': st.get('commits'),
                      'rewritten': bool(st.get('rewritten')), 'counts': counts, 'usage': usage_of(result, where),
+                     **({'lines_only': True} if st.get('lines_only') else {}),
                      'discarded_drafts': bool(st.get('discard_drafts')) and unposted(page)}
             # The same page, name and session; the code, files, diff markers and links are read again at the new head.
             built = build_page({
@@ -1080,7 +1097,8 @@ def run(spec: dict, build_page: Callable[[dict], tuple[Path, dict] | None],
         return
     _out, new = built
     claimed = sum(1 for f in findings if (f.get('rereview') or {}).get('at') == head and claimed_but_open(f['rereview']))
-    message = f'Reviewed {head[:8]}: {said(counts)}' + (
+    message = (f"Moved the findings to {head[:8]} without Claude: the new commits change none of their files."
+               if st.get('lines_only') else None) or f'Reviewed {head[:8]}: {said(counts)}' + (
         f"; {claimed} the author called fixed still appl{'ies' if claimed == 1 else 'y'}" if claimed else '') + (
         f' ({cost})' if (cost := spent(entry['usage'])) else '') + '.'
     # Under the lock every write to the page takes: stage every new file, record the steps that put them in place

@@ -521,6 +521,14 @@ new head (decisions E1–E4 of 2026-10-19).
   until Draft comments ends, or stop it in Sessions."; posting and telling cannot be stopped), and while unposted drafts
   are not confirmed for discarding (409 with `drafts: true`). The server hands the worker each finding's decision and
   note (`decisions()`, a note cut at 600 characters), the new commits and the freshness `affected` map.
+- **Lines only** (`lines_only: true` in the start's body): when the freshness check says `behind` and its `affected` map
+  is empty (the new commits change none of the findings' files), the findings can move to the new head without Claude.
+  No transcript, no `claude` and no PR comments are needed: the worker skips `_ask_claude()` and hands `new_findings()`
+  an empty answer, so each finding keeps its text and its last re-review outcome and moves through the diff, and the
+  triage carries over as below. It does not review what the commits added. The start is refused (409) when a finding's
+  file changed or the history was rewritten. The `rereviewed` entry says `lines_only`, the job's message is "Moved the
+  findings to f48a8e88 without Claude: the new commits change none of their files.", and the hand-off says the page
+  was moved "without a re-review". `rereview.view()` gives `lines_ok` when it can run.
 - **The fork**: with `rereview.context` `fork` (the default), `claude -p --resume <review session> --fork-session`;
   with `fresh`, a new `claude -p` in the page's repository, whose prompt starts by saying it has not seen the review
   and carries every open finding's text, and which needs no review transcript (with `fork`, a page whose transcript is

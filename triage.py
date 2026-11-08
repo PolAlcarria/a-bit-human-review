@@ -500,7 +500,7 @@ def start_rereview(page: str, payload: dict) -> tuple[int, dict]:
     if not data:
         return 404, {'error': 'unknown page'}
     dec, _chat, _owner, _version = page_state(page)
-    return rereview.start(page, data, dec, payload.get('discard_drafts') is True)
+    return rereview.start(page, data, dec, payload.get('discard_drafts') is True, payload.get('lines_only') is True)
 
 
 def post_drafts(page: str, payload: dict) -> tuple[int, dict]:
