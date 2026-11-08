@@ -15,6 +15,8 @@
   whose PR it is before it shows the Fix button, and a PR you opened no longer shows Post, Fix and Don't post at once.
 
 ### Changed
+- A re-review's prompt is shorter: instead of the whole hand-off summary, which listed every finding a second time,
+  it carries each finding's decision and note under that finding.
 - The hand-off to the review session follows the page's mode: in post mode it has nothing to fix, in fix mode
   nothing to post. A PR you opened used to mix both ("1 to post, 1 to fix locally, …"). Draft comments and posting
   are refused in fix mode, Send fixes to session in post mode.

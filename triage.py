@@ -498,9 +498,8 @@ def start_rereview(page: str, payload: dict) -> tuple[int, dict]:
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
-    dec, chat_state, _owner, _version = page_state(page)
-    return rereview.start(page, data, summarize(page, dec, chat_state, for_claude=False),
-                          payload.get('discard_drafts') is True)
+    dec, _chat, _owner, _version = page_state(page)
+    return rereview.start(page, data, dec, payload.get('discard_drafts') is True)
 
 
 def post_drafts(page: str, payload: dict) -> tuple[int, dict]:

@@ -516,15 +516,16 @@ new head (decisions E1–E4 of 2026-10-19).
   review transcript is gone (409, and the page shows no button), when the check (`freshness.check()`, cached for a
   minute) finds nothing newer or the new head is not in the clone (409), while another job runs on the page (409 "Wait
   until Draft comments ends, or stop it in Sessions."; posting and telling cannot be stopped), and while unposted drafts
-  are not confirmed for discarding (409 with `drafts: true`). The server hands the worker the triage as the hand-off
-  hook writes it (`summarize()`), the new commits and the freshness `affected` map.
+  are not confirmed for discarding (409 with `drafts: true`). The server hands the worker each finding's decision and
+  note (`decisions()`, a note cut at 600 characters), the new commits and the freshness `affected` map.
 - **The fork**: `claude -p --resume <review session> --fork-session`, read-only tools (`chat.READ_ONLY_TOOLS`), hooks
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
   setting. `PROMPT` gives the PR, the reviewed commit, the new head, the commits in between, each finding with its id,
   anchors, body and what the new commits touched, the PR's comments (`pr_comments()`: every review thread with its
   replies, then the conversation, read with `gh api …/pulls/N/comments` and `…/issues/N/comments`, at most 20 000
-  characters; a PR whose comments cannot be read dismisses nothing), and the triage; it asks the fork to review what the
+  characters; a PR whose comments cannot be read dismisses nothing), and under each finding the reviewer's decision and
+  note ("The reviewer chose: Post …"; the hand-off summary is not sent, since it repeats the findings); it asks the fork to review what the
   commits changed and to re-check each finding. **Each finding's own thread** goes under that finding instead of in the
   list (`finding_threads()`): a comment is a finding's when it is in a review the page posted (`draft.posted_reviews()`:
   `posted.json`, or `drafts.json` for a review posted before it existed), on the same file, with the same text, else on
