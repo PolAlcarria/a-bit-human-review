@@ -215,7 +215,7 @@ running   the worker writes progress only while the state still carries its job 
 | `GET /api/freshness/<page>[?force=1]` | Has the PR moved past the reviewed commit (one check per page at a time; others wait for it) |
 | `GET /api/activity/<page>` | The Running panel: jobs running and ended in the last 10 minutes, Claude sessions to resume; and the re-review: whether the page can run one (and why not), and the last one's state, which locks the page |
 | `POST /api/stop/<page>/draft`, `POST /api/stop/<page>/rereview`, `POST /api/stop/<page>/chat/<finding-id>` | Stop drafting, a re-review or a side chat reply |
-| `GET /api/handoff/<page>` | The review session (name when open), whether the page can draft, whether the code is yours (`own_code`: no PR, or a PR the `gh` user opened), the drafts so far, and the last Send fixes (`send`) |
+| `GET /api/handoff/<page>` | The review session (name when open), whether the page can draft, the page's mode in force (`mode`: `post` or `fix`, `store.review_mode`), the drafts so far, and the last Send fixes (`send`) |
 | `POST /api/draft/<page>` | Draft comments: a fork of the review session drafts the review (202; see `draft.py`) |
 | `POST /api/draft/<page>/post` | Post the edited drafts as one GitHub review (202), then tell the review session |
 | `DELETE /api/draft/<page>` | Discard the drafts and delete the fork (409 while drafting, posting or telling) |

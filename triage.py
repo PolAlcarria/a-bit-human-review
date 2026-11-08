@@ -460,34 +460,16 @@ def activity(page: str) -> dict:
     return {'running': running, 'ended': ended, 'sessions': rows, 'rereview': rereview.view(data, rr)}
 
 
-_LOGIN_FAILED = [0.0]  # when the gh login last failed: own_code() does not ask again for 5 minutes
-
-
-def own_code(data: dict) -> bool:
-    """Whether the reviewed code is the reviewer's own, so a finding can be fixed before anyone else reviews it: a review
-    with no PR (a local branch or the working tree), or a PR the gh user opened."""
-    if not data.get('pr'):
-        return True
-    author = data.get('pr_author')
-    if not author or (not freshness.LOGIN and time.time() - _LOGIN_FAILED[0] < 300):
-        return False
-    login = freshness.viewer_login()
-    if not login:
-        _LOGIN_FAILED[0] = time.time()
-    return author == login
-
-
 def handoff(page: str) -> dict:
-    """The review session (its name when open), whether the page can draft and post, whether the code is the reviewer's
-    own, the drafts so far, and the last Send fixes."""
+    """The review session (its name when open), whether the page can draft and post, the page's mode in force, the
+    drafts so far, and the last Send fixes."""
     data = store.page_data(page) or {}
-    _dec, _chat, owner, version = page_state(page)
+    dec, _chat, owner, version = page_state(page)
     owner = owner or data.get('session_id')
     live = sessions.live_session(owner) if owner and sessions.SESSION_RE.match(owner) else None
     session = {'id': owner, 'name': live.get('name'), 'status': live.get('status'),
                'cwd': (live.get('cwd') or '').replace(str(Path.home()), '~', 1) or None} if live else None
-    return {'session': session, 'can_draft': draft.can_draft(data), 'own_code': own_code(data),
-            'mode': store.review_mode(data, _dec),
+    return {'session': session, 'can_draft': draft.can_draft(data), 'mode': store.review_mode(data, dec),
             'draft': draft.state(page), 'send': send_state(page), 'version': version}
 
 
