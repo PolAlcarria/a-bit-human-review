@@ -337,7 +337,7 @@ function updateToolbar() {
     const X = DS();
     btn.textContent = { drafting: 'Drafting…', ready: 'Review drafts', posting: 'Posting…', posted: '✓ Posted' }[X?.status]
       || (X?.review ? 'Review drafts' : 'Draft comments');
-    const why = !X ? `A fork of ${HANDOFF.session?.name || 'the review session'} drafts the PR comments from your triage. You edit and approve them here; nothing is posted before that.`
+    const why = !X ? 'Claude drafts the PR comments from your triage, in a new session or a fork of the review session: you pick in the dialog. You edit and approve them there; nothing is posted before that.'
       : X.status === 'failed' ? X.error || '' : '';
     // A done PR needs nothing more: the button stays usable but is no longer shown as the next step.
     btn.classList.toggle('send', !done);
@@ -359,10 +359,12 @@ function updateToolbar() {
   updateSendButton();
 }
 
-/* ---------- Drafts: a fork of the review session drafts the comments, you approve, the server posts (draft.py) ---------- */
+/* ---------- Drafts: a new session or a fork of the review session drafts the comments, you approve, the server posts (draft.py) ---------- */
 
 const DS = () => HANDOFF?.draft;
-// Keep polling while something runs, including the fork telling the review session after a post.
+// Where drafting can run (draft.view): the default context (draft.context), whether a fork can run, and what it reads.
+const DC = () => HANDOFF?.draft_context || {};
+// Keep polling while something runs, including the drafting session telling the review session after a post.
 const draftBusy = () => ['drafting', 'posting'].includes(DS()?.status) || (DS()?.status === 'posted' && !DS().told);
 const EVENT_LABEL = { COMMENT: 'Comment', REQUEST_CHANGES: 'Request changes', APPROVE: 'Approve' };
 // The level a posted comment leads with, in bold (draft.py LEVELS), and the one each severity starts at.
@@ -391,12 +393,36 @@ async function draftApi(method, suffix = '', body = null) {
   }
 }
 
-async function startDraft() {
+// '412k tokens read, $1.37 (the fork's total)' (claude_cli.spent), or ''.
+function spentText(u) {
+  if (!u) return '';
+  const parts = u.tokens_read ? [u.tokens_read >= 1000 ? `${Math.round(u.tokens_read / 1000)}k tokens read` : `${u.tokens_read} tokens read`] : [];
+  if (typeof u.cost_usd === 'number') parts.push(`$${u.cost_usd.toFixed(2)}${u.context === 'fork' ? " (the fork's total)" : ''}`);
+  return parts.join(', ');
+}
+const forkTokens = n => n ? `about ${Math.round(n / 1000)}k tokens` : 'its whole context';
+// Each context said with what it reads before it starts, as the re-review banner says it (rrCost).
+function draftCost(who) {
+  const C = DC();
+  const fresh = 'A <b>new session</b> reads only the findings to post, your triage and the code: the cheaper one.';
+  const fork = C.fork_ok ? `A <b>fork of ${esc(who)}</b> knows the whole review conversation, and reads it again first: ${esc(forkTokens(C.context_tokens))}.`
+    : `No fork: ${esc(C.fork_why || "the review session's transcript is gone.")}`;
+  return `<p>${fresh} ${fork}</p>`;
+}
+// The draft buttons: the default context first (draft.context; fresh when a fork cannot run), then the other one.
+function draftButtons(verb, primary = true) {
+  const C = DC(), first = C.context === 'fork' && C.fork_ok ? 'fork' : 'fresh', other = first === 'fork' ? 'fresh' : 'fork';
+  const say = { fresh: 'in a new session', fork: 'in a fork' };
+  const btn = (ctx, cls) => `<button class="tb${cls}" data-act="draft" data-ctx="${ctx}">${esc(verb)} ${say[ctx]}</button>`;
+  return btn(first, primary ? ' primary' : '') + (other === 'fork' && !C.fork_ok ? '' : btn(other, ''));
+}
+
+async function startDraft(context) {
   if (locked()) return lockedSay();
   // The server drafts from the saved triage, so save any pending change first.
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await pushRemote(); }
   draftEdit = null;
-  await draftApi('POST');
+  await draftApi('POST', '', context ? { context } : null);
   openDrafts();
   loadHandoff();
   loadActivity();
@@ -509,7 +535,8 @@ function renderDrafts(force = false) {
   if (!document.getElementById('drafts').open) return;
   const X = DS(), who = HANDOFF?.session?.name || 'the review session';
   // Only re-render when the drafts' state changes: a re-render while typing would move the cursor.
-  const key = [X?.status, X?.drafted_at, (X?.steps || []).length, !!X?.told, draftError].join('|');
+  // Before any draft, the buttons follow where drafting can run (a fork needs the review's transcript).
+  const key = [X?.status, X?.drafted_at, (X?.steps || []).length, !!X?.told, draftError, X ? '' : JSON.stringify(DC())].join('|');
   if (!force && key === draftShownFor) return;
   draftShownFor = key;
   const body = document.getElementById('drafts-body'), foot = document.getElementById('drafts-foot');
@@ -517,13 +544,15 @@ function renderDrafts(force = false) {
   document.getElementById('drafts-title').textContent = `Draft review · PR #${D.pr}`;
   const err = draftError || (X?.status === 'failed' ? X.error : '');
   const errHtml = err ? `<span class="err" role="alert">${esc(err)}</span>` : '';
-  sub.textContent = X?.drafted_at ? `drafted by a fork of ${who} · ${new Date(X.drafted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
+  const by = X?.context === 'fresh' ? 'a new session' : `a fork of ${who}`;
+  const cost = spentText(X?.usage);
+  sub.textContent = X?.drafted_at ? `drafted by ${by} · ${new Date(X.drafted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${cost ? ` · ${cost}` : ''}` : '';
   if (!X || (X.status === 'failed' && !X.review)) {
-    body.innerHTML = `<p>A fork of <b>${esc(who)}</b> drafts the PR comments from your triage, with the whole review conversation as context. Comments you wrote yourself go in word for word. You edit and approve them here; nothing reaches GitHub before that.</p>`;
-    foot.innerHTML = `${errHtml}<span class="grow"></span><button class="tb primary" data-act="draft">Draft comments</button>`;
+    body.innerHTML = `<p>Claude drafts the PR comments from your triage. Comments you wrote yourself go in word for word. You edit and approve them here; nothing reaches GitHub before that.</p>${draftCost(who)}`;
+    foot.innerHTML = `${errHtml}<span class="grow"></span>${draftButtons('Draft')}`;
   } else if (X.status === 'drafting') {
     const steps = (X.steps || []).map(s => `<li>${esc(s)}</li>`).join('');
-    body.innerHTML = `<p>A fork of <b>${esc(who)}</b> is drafting the comments from your triage. Usually one to three minutes.</p>${steps ? `<ul class="dsteps">${steps}</ul>` : ''}`;
+    body.innerHTML = `<p>${X.context === 'fresh' ? 'A new session' : `A fork of <b>${esc(who)}</b>`} is drafting the comments from your triage. Usually one to three minutes.</p>${steps ? `<ul class="dsteps">${steps}</ul>` : ''}`;
     foot.innerHTML = '<span class="grow">You can close this; the toolbar button says when the drafts are ready.</span>';
   } else if (X.status === 'posting') {
     body.innerHTML = '<p>Posting the review to GitHub…</p>';
@@ -531,10 +560,10 @@ function renderDrafts(force = false) {
   } else if (X.status === 'posted') {
     const P = X.posted || {}, T = X.told;
     const told = !T ? `Telling <b>${esc(who)}</b> what was posted…`
-      : T.ok ? `✓ <b>${esc(T.to)}</b> was told, so it will not post these again. The fork is deleted.` : `${esc(T.error || 'The review session was not told.')} The fork is deleted.`;
+      : T.ok ? `✓ <b>${esc(T.to)}</b> was told, so it will not post these again. The drafting session is deleted.` : `${esc(T.error || 'The review session was not told.')} The drafting session is deleted.`;
     body.innerHTML = `<p>✓ <b>Posted</b> as a ${esc(EVENT_LABEL[P.event] || P.event)} review with ${P.inline} inline comment${P.inline === 1 ? '' : 's'}.
       ${P.url ? `<a href="${esc(P.url)}" target="_blank" rel="noopener">Open on GitHub ↗</a>` : ''}</p><p>${told}</p>`;
-    foot.innerHTML = '<span class="grow"></span><button class="tb" data-act="draft">Draft again</button><button class="tb" data-act="close">Close</button>';
+    foot.innerHTML = `<span class="grow"></span>${draftButtons('Draft again', false)}<button class="tb" data-act="close">Close</button>`;
   } else {
     // Ready, or a post that failed: the editable drafts. Edits live in draftEdit until posted.
     if (!draftEdit || draftEdit.at !== X.drafted_at) {
@@ -554,7 +583,7 @@ function renderDrafts(force = false) {
         ${c.in_diff ? '' : `<span class="outside">${c.path ? 'Outside the diff: GitHub cannot take it inline, so it goes in the review body.' : 'No code anchor, so it goes in the review body.'}</span>`}
         <textarea data-body="${i}" aria-label="Comment on ${esc(spot(c))}" rows="${Math.min(12, Math.max(3, c.body.split('\n').length + 1))}">${esc(c.body)}</textarea></div>`).join('')}`;
     foot.innerHTML = `${errHtml}<span class="done-note" id="d-done" hidden></span><span class="grow">Posted with your gh account exactly as written here, each comment led by its level in bold.</span>
-      <button class="tb" data-act="discard">Discard</button><button class="tb" data-act="draft">Re-draft</button>
+      <button class="tb" data-act="discard">Discard</button>${draftButtons('Re-draft', false)}
       <button class="tb primary" data-act="post" id="d-post"></button>`;
     updatePostButton();
   }
@@ -697,19 +726,25 @@ async function loadActivity() {
   actTimer = setTimeout(() => { if (document.visibilityState === 'visible') loadActivity(); }, ACT.running.length ? 1500 : 10000);
 }
 
-/* ---------- Review the new commits: a fork of the review session re-checks the findings at the new head (rereview.py) ---------- */
+/* ---------- Review the new commits: a new session or a fork of the review session re-checks the findings at the new head (rereview.py) ---------- */
 
-// What starting a re-review costs, before you start it (rereview.view): a fork reads the review session's whole
-// context again; a fresh session reads only the findings, the new commits and the PR's comments.
+// What each context costs, before you start it (rereview.view): a fork reads the review session's whole context
+// again; a fresh session reads only the findings, the new commits and the PR's comments.
 function rrCost(R) {
-  if (R.context === 'fresh') return 'New session: reads only the findings and the new commits.';
-  return R.context_tokens ? `Reads the review session again: about ${Math.round(R.context_tokens / 1000)}k tokens of context.` : '';
+  const fresh = 'New session: reads only the findings and the new commits.';
+  if (!R.fork_ok) return fresh;
+  return `${fresh} Fork: reads the review session again, ${forkTokens(R.context_tokens)}.`;
 }
-function rrStartTitle(R) {
-  return (R.context === 'fresh'
-    ? 'A new Claude session reviews the new commits and re-checks each finding at the new head'
-    : 'A fork of the review session reviews the new commits and re-checks each finding at the new head')
-    + '; this page then shows the new head with your triage carried over. rereview.context in config.json picks fork or fresh.';
+function rrStartTitle(ctx) {
+  return (ctx === 'fresh'
+    ? 'A new Claude session, which knows only the findings, the new commits and the PR\'s comments, reviews the new commits and re-checks each finding at the new head'
+    : 'A fork of the review session, which knows the whole review, reviews the new commits and re-checks each finding at the new head')
+    + '; this page then shows the new head with your triage carried over. rereview.context in config.json picks which one comes first.';
+}
+// The contexts the banner offers, the default first (rereview.context; fresh when a fork cannot run).
+function rrContexts(R) {
+  const first = R.context === 'fork' && R.fork_ok ? 'fork' : 'fresh';
+  return first === 'fork' ? ['fork', 'fresh'] : R.fork_ok ? ['fresh', 'fork'] : ['fresh'];
 }
 
 // ACT.rereview says whether the page can review new commits (and why not) and how the last re-review went. While one
@@ -756,7 +791,8 @@ function renderRereview() {
   let html = '', cls = '';
   if (locked()) {
     const what = R.rewritten ? 'the new head' : `the ${phrase(R.commits || 0, 'new commit', 'new commits')}`;
-    html = `<span class="pulse" aria-hidden="true"></span><b>${R.lines_only ? 'Moving the findings to the new head…' : `Reviewing ${esc(what)}…`}</b>
+    const inCtx = R.lines_only ? '' : R.ran_in === 'fresh' ? ' in a new session' : R.ran_in === 'fork' ? ' in a fork' : '';
+    html = `<span class="pulse" aria-hidden="true"></span><b>${R.lines_only ? 'Moving the findings to the new head…' : `Reviewing ${esc(what)}${inCtx}…`}</b>
       <span class="jt" data-started="${esc(R.started)}" aria-hidden="true">${clock(Date.now() / 1000 - R.started)}</span>
       <span class="why">Triage, notes, drafts and the chat wait until it ends.</span>
       <button data-rr="stop"${R.stopping ? ' aria-disabled="true"' : ''}>${R.stopping ? 'Stopping…' : 'Stop'}<span class="sr-only"> the review of the new commits</span></button>`;
@@ -836,12 +872,13 @@ function applyLock() {
 // Unposted drafts point at the old lines: starting asks first, in the banner, and they go only if the review succeeds.
 const unpostedDrafts = () => { const X = DS(); return !!X?.review && ['ready', 'failed'].includes(X.status); };
 
-// linesOnly: move the findings to the new head without Claude (only offered when no finding's file changed). The
-// choice is kept while the drafts question is asked.
-let rrLinesOnly = false;
-async function startRereview(discard, linesOnly = rrLinesOnly) {
+// linesOnly: move the findings to the new head without Claude (only offered when no finding's file changed). context:
+// fork or fresh, the button chosen. Both choices are kept while the drafts question is asked.
+let rrLinesOnly = false, rrContext = null;
+async function startRereview(discard, linesOnly = rrLinesOnly, context = rrContext) {
   if (rrStarting || locked()) return;
   rrLinesOnly = !!linesOnly;
+  rrContext = linesOnly ? null : context || null;
   if (!discard && unpostedDrafts()) { rrConfirm = true; renderFreshness(); document.getElementById('rr-go')?.focus(); return; }
   rrStarting = true;
   // The fork gets the saved triage, so save any pending change first (as startDraft does).
@@ -849,7 +886,7 @@ async function startRereview(discard, linesOnly = rrLinesOnly) {
   let error = '', ask = false;
   try {
     const r = await fetch('/api/rereview/' + encodeURIComponent(D.page), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Finding-Viewer': '1' }, body: JSON.stringify({ discard_drafts: !!discard, lines_only: rrLinesOnly }),
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Finding-Viewer': '1' }, body: JSON.stringify({ discard_drafts: !!discard, lines_only: rrLinesOnly, ...(rrContext ? { context: rrContext } : {}) }),
     });
     const body = await r.json().catch(() => ({}));
     ask = r.status === 409 && body.drafts;  // drafts appeared meanwhile (another tab): ask here too
@@ -859,7 +896,7 @@ async function startRereview(discard, linesOnly = rrLinesOnly) {
   }
   rrStarting = false;
   rrConfirm = ask;
-  if (!ask) rrLinesOnly = false;
+  if (!ask) { rrLinesOnly = false; rrContext = null; }
   rrNote = error ? { kind: 'bad', text: `Not started: ${error}` } : null;
   if (error) announce(rrNote.text);
   await loadHandoff();
@@ -872,6 +909,7 @@ async function startRereview(discard, linesOnly = rrLinesOnly) {
 function cancelRereview() {
   rrConfirm = false;
   rrLinesOnly = false;
+  rrContext = null;
   renderFreshness();
   document.getElementById('rr-start')?.focus();
 }
@@ -1331,7 +1369,8 @@ function renderFreshness() {
   const review = !SERVED || !R.can || locked() ? lines
     : rrConfirm ? `<span class="confirm"><span>This discards the unposted drafts: they refer to the old lines. They go only once the review succeeds.</span>
         <button class="go" id="rr-go">Discard drafts and review</button><button id="rr-cancel">Cancel</button></span>`
-    : `<button class="go" id="rr-start" title="${esc(rrStartTitle(R))}">${esc(label)}</button>${lines}<span class="rr-cost">${esc(rrCost(R))}</span>`;
+    : rrContexts(R).map((ctx, i) => `<button${i ? '' : ' class="go"'} id="rr-${i ? 'alt' : 'start'}" data-ctx="${ctx}" title="${esc(rrStartTitle(ctx))}">${esc(i ? (ctx === 'fork' ? 'In a fork' : 'In a new session') : `${label} ${ctx === 'fork' ? 'in a fork' : 'in a new session'}`)}</button>`).join('')
+      + `${lines}<span class="rr-cost">${esc(rrCost(R))}</span>`;
   showFresh(el, `${first}<span${R.can === false && R.why ? ` title="${esc(R.why)}"` : ''}>${lead}${state}</span><span>${impact}</span>
     ${F.compare_url ? `<a href="${esc(F.compare_url)}" target="_blank">See what changed ↗</a>` : ''}
     <button id="fresh-again" aria-label="Check again"><span aria-hidden="true">Check again</span></button>${review}
@@ -1781,15 +1820,13 @@ document.getElementById('statusFilter').addEventListener('click', e => {
 });
 document.getElementById('copy').addEventListener('click', copyTriage);
 document.getElementById('send-fixes').addEventListener('click', sendFixes);
-document.getElementById('draft').addEventListener('click', () => {
-  const X = DS();
-  if (!X || (X.status === 'failed' && !X.review)) startDraft(); else openDrafts();
-});
+// The dialog opens first, so you pick where the drafting runs (and see what each reads) before anything is spent.
+document.getElementById('draft').addEventListener('click', openDrafts);
 const draftsEl = document.getElementById('drafts');
 draftsEl.addEventListener('click', e => {
   if (e.target === draftsEl || e.target.id === 'drafts-close') return closeDrafts();
-  const act = e.target.closest('button[data-act]')?.dataset.act;
-  if (act === 'draft') startDraft();
+  const b = e.target.closest('button[data-act]'), act = b?.dataset.act;
+  if (act === 'draft') startDraft(b.dataset.ctx);
   else if (act === 'post') postDrafts();
   else if (act === 'discard') discardDrafts();
   else if (act === 'close') closeDrafts();
@@ -1809,7 +1846,7 @@ draftsEl.addEventListener('input', e => {
 });
 document.getElementById('fresh').addEventListener('click', e => {
   if (e.target.closest('#fresh-again')) loadFreshness(true);
-  else if (e.target.closest('#rr-start')) startRereview(false, false);
+  else if (e.target.closest('#rr-start, #rr-alt')) startRereview(false, false, e.target.closest('[data-ctx]').dataset.ctx);
   else if (e.target.closest('#rr-lines')) startRereview(false, true);
   else if (e.target.closest('#rr-go')) startRereview(true);
   else if (e.target.closest('#rr-cancel')) cancelRereview();

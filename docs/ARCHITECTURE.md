@@ -36,8 +36,8 @@ review turn ends ─► /findings (or Stop hook, if asked) ─► detect review 
                        page rebuilt at the head ◄── rereview.json ◄─────┤ Review the new commits (fork of the review session or a
                        (triage carried over)        (the page's lock)   │ fresh one, or the lines only without Claude; detached
                                                                         │ worker; every write waits: 423)
-    GitHub review ◄── gh api ◄── you approve ◄──── drafts.json ◄────────┘ Draft comments (fork of the review session,
-                    (detached worker)                                     detached worker)
+    GitHub review ◄── gh api ◄── you approve ◄──── drafts.json ◄────────┘ Draft comments (a new session or a fork of the
+                    (detached worker)                                     review session, detached worker)
 ```
 
 Five stages: **detect** a review, **render** a page (finding the reviewed repo and reading the findings with Claude),
@@ -71,7 +71,7 @@ Three layers: the entry point, the feature modules that do the work, and the sha
 | feature | `reviews.py` | The stored pages: the list, the page template assembled from `web/`, archive and delete; owns `out/archived.json` |
 | feature | `handoff.py` | The triage handed back to Claude: the inject hook, `decisions`, the summary ([Hand-back](behaviour.md#hand-back-to-claude-the-inject-hook)); Send fixes to session (`send_fixes`, a detached worker that relays the triage, `run_send`); owns `inject_state.json` and `out/<page>/send.json` |
 | feature | `chat.py` | Side chat: one thread per finding, each reply a detached worker that resumes the thread's Claude session ([Side chat](behaviour.md#side-chat)); owns `chat.json` and `settings.json` |
-| feature | `draft.py` | Draft comments and posting: the fork that drafts the review, the post, the tell ([Draft comments](behaviour.md#draft-comments-and-posting)); owns `drafts.json` |
+| feature | `draft.py` | Draft comments and posting: the session that drafts the review (fresh or a fork; `build_prompt`, `view`), the post, the tell ([Draft comments](behaviour.md#draft-comments-and-posting)); owns `drafts.json` |
 | feature | `send.py` | The relay to a live session: `deliver()` relays a message with only SendMessage: resuming the review's fork to tell the review session what was posted, or as a session of its own for Send fixes (deleted afterwards) ([Draft comments](behaviour.md#draft-comments-and-posting)) |
 | feature | `rereview.py` | Re-review of the PR's new commits: the session it runs in (`context`: a fork or a fresh one; `_ask_claude`), its prompt and limits (`build_prompt`, `limit_args`), its answer, what it cost (`usage_of`), the lines-only update without Claude, and the update of the page under its lock ([Review the new commits](behaviour.md#review-the-new-commits)); owns `rereview.json` |
 | feature | `freshness.py` | Whether the reviewed commit is still what the PR holds: the cached check and where a line went ([Freshness](behaviour.md#freshness)); owns `freshness.json` |
@@ -89,7 +89,7 @@ Three layers: the entry point, the feature modules that do the work, and the sha
 | shared | `severity.py` | The severities, their id letters and labels, the words reviews use for them |
 | shared | `store.py` | Review data on disk: each page's folder `out/<page>/` (`page_dir`, `pages`, `exists`), `page_data` (reads `review.json`, the one way review data is read), the triage and chat files (`decisions.json`, `chat.json`), the checkout of the reviewed commit (`worktrees/`), `default_base` and `git` |
 | shared | `sessions.py` | Claude Code's session files: transcripts, open sessions, deleting a fork, the context a session's last answer held (`context_tokens`) |
-| shared | `claude_cli.py` | Running `claude` as a child: the binary, its environment and flags, a JSON call, a stream-json reader |
+| shared | `claude_cli.py` | Running `claude` as a child: the binary, its environment and flags, a JSON call, a stream-json reader, a run's limits (`limit_args`, `limit_error`) and what it read and cost (`usage_of`, `spent`) |
 | shared | `jobs.py` | Detached workers: spawn, file locks, kill, one Check again at a time; owns `out/specs/jobs/` and the lock sidecars (`out/<page>/locks/chat.lock`, `drafts.lock`, `rereview.lock`, `send.lock`) |
 | shared | `jobstate.py` | The job state machine that drafting, re-review, side chat and Send fixes share ([Background jobs](behaviour.md#background-jobs)) |
 
@@ -152,8 +152,8 @@ an older file can lack some of them.
   the system line after a re-review carries `rereview` (the new head) and `claude`, the note Claude reads next), and
   `pending` (null, or `started`, `status`, `steps`, `job`, `pid`, `session`, `stopping`).
 - **`drafts.json`** (`draft.py`): `status` (`drafting`, `ready`, `posting`, `posted`, `failed`), `started`,
-  `version`, `phase`, `steps`, `error`, `stopped`, `stopping`, `review_session`, `cwd`, `fork`, `job`, `pid`,
-  `drafted_at`, `ended`, `review` (`body`, `event`, `comments`: `finding`, `title`, `path`, `line`, `start_line`,
+  `version`, `phase`, `steps`, `error`, `stopped`, `stopping`, `review_session`, `cwd`, `context` (`fork` or `fresh`),
+  `fork` (the drafting session's id, either way), `job`, `pid`, `drafted_at`, `ended`, `usage`, `review` (`body`, `event`, `comments`: `finding`, `title`, `path`, `line`, `start_line`,
   `level`, `body`, `own`, `in_diff`), `posted` (`url`, `id`, `at`, `inline`, `event`), `telling`, and `told` (`ok`,
   `to`, `error`, `ended`).
 - **`posted.json`** (`draft.record_posted`): `reviews`, each with `id`, `url`, `at`, `commit` and `comments`
@@ -219,10 +219,10 @@ running   the worker writes progress only while the state still carries its job 
 | `GET /api/activity/<page>` | The Running panel: jobs running and ended in the last 10 minutes, Claude sessions to resume; and the re-review: whether the page can run one (and why not), its context and, for a fork, how many tokens it reads again (`context_tokens`), whether the lines can move without Claude (`lines_ok`), and the last one's state, which locks the page |
 | `POST /api/stop/<page>/draft`, `POST /api/stop/<page>/rereview`, `POST /api/stop/<page>/chat/<finding-id>` | Stop drafting, a re-review or a side chat reply |
 | `GET /api/handoff/<page>` | The review session (name when open), whether the page can draft, the page's mode in force (`mode`: `post` or `fix`, `store.review_mode`), the drafts so far, and the last Send fixes (`send`) |
-| `POST /api/draft/<page>` | Draft comments: a fork of the review session drafts the review (202; see `draft.py`); 409 in fix mode |
+| `POST /api/draft/<page>` | `{"context": "fork"\|"fresh"}` (optional; else `draft.context`): Draft comments in a fork of the review session or a new session (202; see `draft.py`); 409 in fix mode, and for a fork when the review's transcript is gone; 400 for another context |
 | `POST /api/draft/<page>/post` | Post the edited drafts as one GitHub review (202), then tell the review session; 409 in fix mode |
 | `DELETE /api/draft/<page>` | Discard the drafts and delete the fork (409 while drafting, posting or telling) |
-| `POST /api/rereview/<page>` | `{"discard_drafts": true\|false, "lines_only": true\|false}`: review the PR's new commits in a fork of the review session or a fresh one (`rereview.context`), or with `lines_only` move the findings to the new head without Claude (202; see [Review the new commits](behaviour.md#review-the-new-commits)). 409 while another job runs on the page, when unposted drafts are not confirmed for discarding (`drafts: true` in the answer), and for `lines_only` when a finding's file changed |
+| `POST /api/rereview/<page>` | `{"discard_drafts": true\|false, "lines_only": true\|false, "context": "fork"\|"fresh"}`: review the PR's new commits in a fork of the review session or a fresh one (`context`, else `rereview.context`), or with `lines_only` move the findings to the new head without Claude (202; see [Review the new commits](behaviour.md#review-the-new-commits)). 409 while another job runs on the page, when unposted drafts are not confirmed for discarding (`drafts: true` in the answer), and for `lines_only` when a finding's file changed |
 | `POST /api/send-fixes/<page>` | Send fixes to session: relay the triage to the open review session now (202, see `handoff.send_fixes`); 409 in post mode, when the review session is not open or a send is still running, 400 with no Fix finding, 500 when the worker does not start (the answer is the failed state), 404 for an unknown page |
 | `GET` / `PUT /api/settings` | Chat model and context mode |
 | `GET /api/ping`, `POST /api/shutdown` | Version check, restart |

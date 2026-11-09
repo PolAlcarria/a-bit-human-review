@@ -4,7 +4,7 @@ A local page for the human part of reviewing code that Claude wrote or reviewed,
 each with its own page and its own tab in the list:
 
 - **Code review**: when Claude finishes a review, each finding opens beside the code it points at. You mark it **Post**,
-  **Fix** or **Don't post**, a fork of the review session drafts the comments you chose, and you edit and post them as
+  **Fix** or **Don't post**, Claude drafts the comments you chose, and you edit and post them as
   one GitHub review. Nothing is posted without your approval.
 - **Diff review**: before any review that hunts for problems, read every change of your branch yourself, line by line.
   Select lines to ask Claude about them or to request a change, then hand the requested changes back to the session
@@ -89,8 +89,9 @@ doctor`): one PASS / WARN / FAIL line per requirement, the hooks, the command, t
    `/findings`. Reviews of a local branch or of the working tree work too, not only PRs.
 2. Decide each finding: `a` post, `r` don't post, `e` note, `c` chat, `j`/`k` next/previous. Click a line number to
    choose where the comment goes. Your triage saves as you go.
-3. Click **Draft comments**: a fork of the review session, which knows the whole review, writes the comments you chose.
-   Edit the drafts, their levels (Must-fix, Should-fix, Suggestion, Nit, Question) and the review type, then
+3. Click **Draft comments** and pick where Claude writes the comments you chose: **in a new session**, which reads
+   only the findings to post, your triage and the code (the default, and the cheaper one), or **in a fork** of the review
+   session, which knows the whole review and reads it all again (the dialog says how many tokens). Edit the drafts, their levels (Must-fix, Should-fix, Suggestion, Nit, Question) and the review type, then
    **Approve & post**. Or write in the review session: your next message carries the triage, and Claude posts only
    what you approved, after your yes.
 4. After posting, the review session is told what was posted, so it is not posted twice.
@@ -187,17 +188,19 @@ point is in [examples/chat-buttons.json](examples/chat-buttons.json).
   each one points at: about a minute and $0.10–0.30 per review. Set `extract.enabled` to false to use only the
   built-in parser (markdown findings with `file:line` anchors), or `extract.confirm` to true so that only `/findings`,
   never the Stop hook, starts it. A diff review needs no Claude to build.
-- **Draft comments, Review the new commits** and side chats in fork mode resume a fork of the review session, so each
-  costs about one more turn of that session, whose whole context is read again (and, hours after the review, no
-  longer cached). A side chat in its default mode starts a small session that knows only the finding, and each later
-  message resumes it.
-- **Review the new commits** quotes only what the fork does not already know, stops after 80 turns
-  (`rereview.max_turns`) and can be given a spending limit (`rereview.max_budget_usd`). `rereview.context` set to
-  `fresh` runs it in a new session instead of a fork, which costs far less on a long review. The page says the context
-  a fork will read before you start, and the tokens and cost when it ends. **Move the lines only** costs nothing.
+- **Draft comments and Review the new commits** each have two buttons: **in a new session**, which reads only what
+  its prompt holds, or **in a fork** of the review session, which costs about one more turn of that session, whose
+  whole context is read again (and, hours after the review, no longer cached). The page says what a fork will read
+  before you start, and the tokens and cost when it ends. `draft.context` (`fresh` by default) and `rereview.context`
+  (`fork` by default) pick which button comes first; a new session also works after the review's transcript is gone.
+  Side chats in fork mode resume a fork too; in their default mode they start a small session that knows only the
+  finding, and each later message resumes it.
+- **Limits**: drafting stops after 40 turns (`draft.max_turns`), a re-review after 80 (`rereview.max_turns`), and each
+  can be given a spending limit (`draft.max_budget_usd`, `rereview.max_budget_usd`). A fork is quoted only what it
+  does not already know. **Move the lines only** costs nothing.
 - **Transcripts it creates** under `~/.claude/projects` (the forks, and a side chat's first session when stopped) are
   deleted once done; `delete_forks` false keeps them.
-- **After posting**, the fork tells the review session what was posted (a `claude -p` that may only use
+- **After posting**, the drafting session tells the review session what was posted (a `claude -p` that may only use
   `SendMessage`), so it is not posted twice. **Send fixes / changes to session** use the same kind of relay.
 - **Data** (pages with code excerpts of the reviewed repos, triage, chats, clones and worktrees) lives in
   `~/.local/share/a-bit-human-review`, or for the plugin in `~/.claude/plugins/data/<plugin id>/`, which
@@ -217,14 +220,17 @@ prints the file's path and the effective values.
 | `extract.enabled` | `true` | `FINDING_VIEWER_EXTRACT` (`0` = off) | Let Claude read the findings out of any review format |
 | `extract.model` | `sonnet` | `FINDING_VIEWER_EXTRACT_MODEL` | Model that reads them |
 | `extract.confirm` | `false` | `FINDING_VIEWER_EXTRACT_CONFIRM` (`1` = on) | On, the Stop hook never starts Claude to read a review: it says so, and `/findings` reads and opens it. A `ReportFindings` review opens as before, since it needs no Claude |
-| `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review forks |
-| `rereview.context` | `fork` | `FINDING_VIEWER_REREVIEW_CONTEXT` | Where **Review the new commits** runs: `fork`, a fork of the review session, which knows the whole review but reads its whole context again; `fresh`, a new session that knows only the findings, the new commits and the PR's comments: much cheaper on a long review, and it works after the review's transcript is gone |
+| `draft_model`, `rereview_model` | the session's | `FINDING_VIEWER_DRAFT_MODEL`, `FINDING_VIEWER_REREVIEW_MODEL` | Model of the drafting and re-review sessions |
+| `draft.context` | `fresh` | `FINDING_VIEWER_DRAFT_CONTEXT` | Which **Draft comments** button comes first: `fresh`, a new session that knows only the findings to post, your triage and the code; `fork`, a fork of the review session, which knows the whole review but reads its whole context again. The dialog offers both |
+| `draft.max_turns` | `40` | `FINDING_VIEWER_DRAFT_MAX_TURNS` | Most turns drafting may take before it stops without drafts; `0` for no limit |
+| `draft.max_budget_usd` | `0` (none) | `FINDING_VIEWER_DRAFT_MAX_BUDGET_USD` | Most dollars drafting may spend, as `claude --max-budget-usd` counts them; `0` for no limit |
+| `rereview.context` | `fork` | `FINDING_VIEWER_REREVIEW_CONTEXT` | Which **Review the new commits** button comes first: `fork`, a fork of the review session, which knows the whole review but reads its whole context again; `fresh`, a new session that knows only the findings, the new commits and the PR's comments: much cheaper on a long review, and it works after the review's transcript is gone. The banner offers both |
 | `rereview.max_turns` | `80` | `FINDING_VIEWER_REREVIEW_MAX_TURNS` | Most turns (tool calls and answers) a re-review may take before it stops without an answer; `0` for no limit |
 | `rereview.max_budget_usd` | `0` (none) | `FINDING_VIEWER_REREVIEW_MAX_BUDGET_USD` | Most dollars a re-review may spend, as `claude --max-budget-usd` counts them (on a fork this may include what the review session already spent); `0` for no limit |
 | `chat_model` | Claude's default | `FINDING_VIEWER_CHAT_MODEL` | Side chat model, until you pick one in the page's ⚙ panel |
 | `report_glob` | `.claude/.history/code-reviews/*/*.md` | `FINDING_VIEWER_REPORT_GLOB` | Saved review reports, relative to the repository root |
 | `default_base` | automatic | `FINDING_VIEWER_DEFAULT_BASE` | Base branch for diffs when there is no PR, and for `/findings diff` (else `origin/HEAD`, develop, main, master) |
-| `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the fork transcripts this tool creates |
+| `delete_forks` | `true` | `FINDING_VIEWER_DELETE_FORKS` | Delete the transcripts this tool creates (forks and fresh drafting or re-review sessions) |
 | `auto_open` | `true` | `FINDING_VIEWER_AUTO_OPEN` (`0` = off) | Open the browser when the Stop hook has a review's page ready. Off, the hook builds the page and tells where it is; `/findings` and the list page still open pages |
 | `trigger` | `explicit` | `FINDING_VIEWER_TRIGGER` | When the Stop hook opens a page: `explicit`, only when the prompt has `/findings` (or `/a-bit-human-review:findings`) written in it (a prompt that only names the viewer gets a line saying to run `/findings`); `mention`, also when the prompt names the viewer ("finding viewer"); `off`, never, and only `/findings` opens pages |
 | `update_check` | `true` | `FINDING_VIEWER_UPDATE_CHECK` (`0` = off) | The plugin's SessionStart hook compares its version with the one on GitHub's main branch, at most once a day, and shows a line when a newer one is out (update with `/plugin`). It never updates anything itself. Off, no request is made |

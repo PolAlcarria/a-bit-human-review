@@ -25,6 +25,9 @@ DEFAULTS: dict[str, Any] = {
     'extract.model': 'sonnet',
     'extract.confirm': False,
     'draft_model': '',
+    'draft.context': 'fresh',
+    'draft.max_turns': 40,
+    'draft.max_budget_usd': 0.0,
     'rereview_model': '',
     'rereview.context': 'fork',
     'rereview.max_turns': 80,
@@ -44,6 +47,9 @@ ENV = {
     'extract.model': 'FINDING_VIEWER_EXTRACT_MODEL',
     'extract.confirm': 'FINDING_VIEWER_EXTRACT_CONFIRM',
     'draft_model': 'FINDING_VIEWER_DRAFT_MODEL',
+    'draft.context': 'FINDING_VIEWER_DRAFT_CONTEXT',
+    'draft.max_turns': 'FINDING_VIEWER_DRAFT_MAX_TURNS',
+    'draft.max_budget_usd': 'FINDING_VIEWER_DRAFT_MAX_BUDGET_USD',
     'rereview_model': 'FINDING_VIEWER_REREVIEW_MODEL',
     'rereview.context': 'FINDING_VIEWER_REREVIEW_CONTEXT',
     'rereview.max_turns': 'FINDING_VIEWER_REREVIEW_MAX_TURNS',
@@ -59,13 +65,17 @@ ENV = {
 # Whole-number keys and the values they take, both ends included. 0 turns means no limit.
 RANGES: dict[str, tuple[int, int]] = {
     'port': (1, 65535),
+    'draft.max_turns': (0, 1000),
     'rereview.max_turns': (0, 1000),
 }
 # Keys that take one of a few words, the default first.
 CHOICES: dict[str, tuple[str, ...]] = {
     'trigger': ('explicit', 'mention', 'off'),
+    'draft.context': ('fresh', 'fork'),
     'rereview.context': ('fork', 'fresh'),
 }
+# Where a run of Claude can go: a fork of the review session, or a fresh session that knows only what its prompt says.
+CONTEXTS = ('fork', 'fresh')
 FALSE_WORDS = ('0', 'false', 'no', 'off')
 
 

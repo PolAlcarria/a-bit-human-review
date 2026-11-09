@@ -277,16 +277,17 @@ def context() -> str:
     return config.get('rereview.context')
 
 
-def unavailable(data: dict, needs_session: bool = True) -> str | None:
-    """Why the page cannot review new commits, or None when it can. ``needs_session`` false: an update of the lines
-    only, which runs no Claude, so the review's transcript does not matter."""
+def unavailable(data: dict, needs_session: bool = True, where: str | None = None) -> str | None:
+    """Why the page cannot review new commits in ``where`` (fork or fresh; the rereview.context setting when None), or
+    None when it can. ``needs_session`` false: an update of the lines only, which runs no Claude, so the review's
+    transcript does not matter; neither does it for a fresh session."""
     if data.get('kind') == 'diff':
         return 'A diff review has no findings to re-check: reload the diff to read the new changes.'
     if not store.reviewed_ref(data):
         return 'This page shows the working tree, so there is no reviewed commit to compare new commits with.'
-    if needs_session and context() == 'fork' and not sessions.review_session(data):
-        return ("The review session's transcript is gone, so there is no review to fork. Set rereview.context to "
-                'fresh to re-review in a new session.')
+    if needs_session and (where or context()) == 'fork' and not sessions.review_session(data):
+        return ("The review session's transcript is gone, so there is no review to fork. Review the new commits in a "
+                'new session instead (rereview.context fresh makes it the default).')
     return None
 
 
@@ -323,16 +324,21 @@ def heads_up(data: dict) -> str | None:
 
 
 def view(data: dict, st: dict | None) -> dict:
-    """The re-review as the page needs it: whether it can run (and why not), and the last one's state."""
-    why, where = unavailable(data), context()
+    """The re-review as the page needs it: whether it can run (and why not), in which contexts, and the last one's
+    state. ``context`` is the default (rereview.context); ``fork_ok`` says whether a fork can run at all (the review's
+    transcript is there), and ``context_tokens`` what a fork reads again before it starts."""
+    why, where = unavailable(data, where='fresh'), context()
+    fork_why = unavailable(data, where='fork')
     # Moving the lines only needs no Claude, so it does not need the review's transcript either.
-    out = {'can': not why, 'why': why, 'context': where, 'lines_ok': not unavailable(data, needs_session=False)}
-    if not why and where == 'fork' and (review := sessions.review_session(data)):
+    out = {'can': not why, 'why': why, 'context': where, 'fork_ok': not fork_why, 'fork_why': fork_why,
+           'lines_ok': not unavailable(data, needs_session=False)}
+    if not fork_why and (review := sessions.review_session(data)):
         # What the fork reads again before it starts: the review session's context at its last answer.
         out['context_tokens'] = sessions.context_tokens(review[0])
     if st:
         out.update({k: st.get(k) for k in ('status', 'started', 'ended', 'from', 'to', 'commits', 'rewritten', 'error',
                                            'stopped', 'stopping', 'result', 'discard_drafts', 'lines_only')})
+        out['ran_in'] = st.get('context')
     return out
 
 
@@ -378,13 +384,15 @@ def decisions(dec: dict) -> dict[str, dict]:
     return out
 
 
-def start(page: str, data: dict, dec: dict, discard_drafts: bool, lines_only: bool = False) -> tuple[int, dict]:
+def start(page: str, data: dict, dec: dict, discard_drafts: bool, lines_only: bool = False,
+          where: str | None = None) -> tuple[int, dict]:
     """Start a re-review of the commits the PR got since the reviewed one. ``dec`` is the page's triage, of which the
     prompt quotes each finding's decision and note; ``discard_drafts`` confirms that unposted drafts go when the
     re-review succeeds. ``lines_only``: no finding's file changed, so the findings only move to the new head through
-    the diff, with no Claude (and no review of what the commits added)."""
-    review, where = sessions.review_session(data), 'none' if lines_only else context()
-    if (why := unavailable(data, needs_session=not lines_only)) or (where == 'fork' and not review):
+    the diff, with no Claude (and no review of what the commits added). ``where``: fork or fresh, the button the
+    reviewer chose; None takes the rereview.context setting."""
+    review, where = sessions.review_session(data), 'none' if lines_only else (where or context())
+    if (why := unavailable(data, needs_session=not lines_only, where=where)) or (where == 'fork' and not review):
         return 409, {'error': why or "The review session's transcript is gone, so there is no review to fork."}
     # A fresh session runs in the repository; the review session's id is kept all the same, so it is never deleted.
     review = review or (data.get('review_session') or data.get('session_id'), data.get('repo_root') or str(Path.home()))
@@ -892,48 +900,17 @@ def needs_body(f: dict, affected: dict, context: str) -> bool:
     return f['id'] in affected or (f.get('rereview') or {}).get('status') in ('changed', 'new')
 
 
-# A result that ended at a limit (claude's result subtypes), in the reviewer's words.
-LIMIT_ERRORS = {
-    'error_max_turns': 'The re-review stopped at its turn limit (rereview.max_turns) before it answered. Raise the '
-                       'limit, or set it to 0 for none, and start again.',
-    'error_max_budget_usd': 'The re-review stopped at its spending limit (rereview.max_budget_usd) before it answered. '
-                            'Raise the limit, or set it to 0 for none, and start again.',
-}
-
-
 def limit_args() -> list[str]:
     """The claude flags for the re-review's limits (config rereview.max_turns, rereview.max_budget_usd); 0 is none."""
-    args = []
-    if turns := config.get('rereview.max_turns'):
-        args += ['--max-turns', str(turns)]
-    if budget := config.get('rereview.max_budget_usd'):
-        args += ['--max-budget-usd', f'{budget:g}']
-    return args
-
-
-def usage_of(result: dict | None, where: str) -> dict:
-    """What the run read and wrote, in tokens, and what claude says it cost. A fork's total_cost_usd can include the
-    review session's own spend (chat.py says so for a forked chat), which one result cannot tell apart; the tokens this
-    run read are its own."""
-    usage = (result or {}).get('usage') or {}
-    read = sum(usage.get(k) or 0 for k in ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'))
-    return {'context': where, 'tokens_read': read, 'cached': usage.get('cache_read_input_tokens') or 0,
-            'output_tokens': usage.get('output_tokens') or 0, 'cost_usd': (result or {}).get('total_cost_usd')}
-
-
-def spent(usage: dict) -> str:
-    """'412k tokens read, $1.37 (the fork's total)', or '' when nothing was counted."""
-    read, cost = usage.get('tokens_read') or 0, usage.get('cost_usd')
-    parts = [f'{read / 1000:.0f}k tokens read'] if read else []
-    if isinstance(cost, (int, float)):
-        parts.append(f'${cost:.2f}' + (" (the fork's total)" if usage.get('context') == 'fork' else ''))
-    return ', '.join(parts)
+    return claude_cli.limit_args('rereview')
 
 
 def limit_error(result: dict | None, error: str | None) -> str | None:
-    """A fork's error, said in the reviewer's words when the run ended at one of the limits."""
-    subtype = (result or {}).get('subtype')
-    return LIMIT_ERRORS[subtype] if error and subtype in LIMIT_ERRORS else error
+    """A re-review's error, said in the reviewer's words when the run ended at one of the limits."""
+    return claude_cli.limit_error('rereview', 'The re-review', result, error)
+
+
+usage_of, spent = claude_cli.usage_of, claude_cli.spent
 
 
 def build_prompt(data: dict, st: dict, spec: dict, checkout: str | None, taken: set[str], context: str = 'fork') -> str:

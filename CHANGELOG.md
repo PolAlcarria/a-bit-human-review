@@ -3,10 +3,29 @@
 ## [Unreleased]
 
 ### Added
+- **Draft comments can run in a new session** instead of a fork of the review session: it reads only the findings to
+  post (in full), your triage and the code, in a checkout of the reviewed commit, so it costs far less on a long review
+  and works after the review's transcript is gone. The `draft.context` setting picks the default: `fresh` (new) or
+  `fork`.
+- The draft dialog and the re-review banner each offer both: **in a new session** and **in a fork**, the setting's
+  default first, with what each reads before you start ("…reads it again first: about 412k tokens"). With no review
+  transcript only the new session is offered. `POST /api/draft/<page>` and `POST /api/rereview/<page>` take
+  `{"context": "fork"|"fresh"}`.
+- Drafting stops after 40 turns (`draft.max_turns`) and can be given a spending limit (`draft.max_budget_usd`), as a
+  re-review can. The dialog says what a draft read and cost ("drafted by a new session · 14k tokens read, $0.06").
 - A SessionStart hook (the plugin only) tells you when a newer version of the plugin is out: one line at session
   start, checked against GitHub at most once a day (a failed lookup waits an hour, and is silent). It only notifies;
   update with `/plugin`. The `update_check` setting (`FINDING_VIEWER_UPDATE_CHECK=0`) turns it off, and then no
   request is made.
+
+### Changed
+- **Drafting runs in a new session by default**, no longer in a fork of the review session. Set `draft.context` to
+  `fork` for the old behaviour, or pick **Draft in a fork** in the dialog. A fork is now quoted the text of findings a
+  re-review changed or added, which the review session may never have seen after a `fresh` re-review.
+- The **Draft comments** button opens the dialog to choose where to draft, instead of starting at once.
+- A page whose review transcript is gone offers **Review the new commits in a new session** whatever
+  `rereview.context` says, instead of no re-review.
+- After posting, whichever session drafted (the fork or the new one) tells the review session what was posted.
 
 ## [0.6.0] - 2026-11-08
 

@@ -258,18 +258,32 @@ built-in buttons, and an empty list shows none. A page opened as a file shows th
 
 ## Draft comments and posting
 
-Draft comments (toolbar button on PR reviews in post mode whose review transcript still exists; `n` with nothing left to decide
-flashes it; `page.html#drafts` opens the dialog). `draft.py`, in three steps:
+Draft comments (toolbar button on PR reviews in post mode; `n` with nothing left to decide flashes it;
+`page.html#drafts` opens the dialog). The button opens the dialog, which offers two buttons, the `draft.context`
+setting's first: **Draft in a new session** ("A new session reads only the findings to post, your triage and the code")
+and **Draft in a fork** ("A fork of <session> knows the whole review conversation, and reads it again first: about
+120k tokens", from `sessions.context_tokens()`); with no review transcript there is no fork button and the dialog says
+why (`draft.view()`, in `GET /api/handoff/<page>` as `draft_context`). Re-draft and Draft again offer the same two.
+`POST /api/draft/<page>` takes `{"context": "fork"|"fresh"}` (400 for anything else; none takes the setting).
+`draft.py`, in three steps:
 
-1. **Draft**: `claude -p --resume <review session> --fork-session` inherits the whole review conversation, gets `PROMPT`
+1. **Draft**: with `fork`, `claude -p --resume <review session> --fork-session` inherits the whole review conversation
+   (refused with 409 when its transcript is gone); with `fresh`, a new `claude -p` in a checkout of the reviewed commit
+   (`store.review_checkout()`), whose prompt says it has not seen the review and quotes each finding to post in full
+   (`draft.build_prompt()`; a fork is quoted only the findings a re-review changed or added since). Either gets `PROMPT`
    plus the same `summarize()` text the hook injects (and the freshness / approval notes), and returns the review
    through `--json-schema`: body, event, one comment per finding to post (path, line, optional start_line, level). A
    finding whose note is in "my comment" mode gets the reviewer's text word for word, whatever the fork returned for it;
    a level the fork wrote into a body anyway is stripped. Read-only tools plus `--add-dir out/`, so it can read the full
-   triage but cannot post. Model: the session default, or the `draft_model` setting. It runs in a detached worker
-   ([Background jobs](#background-jobs)). The fork's id is recorded from its first event, the steps show in the dialog,
-   and the drafts land in `out/<page>/drafts.json` with `in_diff` per comment (checked against the page's hunk ranges).
-   Stop (Running panel) ends the worker, deletes the fork and leaves "Stopped by you." as the dialog's error.
+   triage but cannot post. Model: the session default, or the `draft_model` setting; `--max-turns` from
+   `draft.max_turns` (40) and `--max-budget-usd` from `draft.max_budget_usd` (none), each left out at 0
+   (`claude_cli.limit_args()`); a run that stops at one fails with "Drafting stopped at its turn limit
+   (draft.max_turns)…". It runs in a detached worker ([Background jobs](#background-jobs)). The session's id is recorded
+   from its first event, the steps show in the dialog, and the drafts land in `out/<page>/drafts.json` with `context`,
+   `usage` (tokens read and claude's cost; the dialog's subtitle says "drafted by a new session · 11:30 · 14k tokens
+   read, $0.06") and `in_diff` per comment (checked against the page's hunk ranges). The Sessions panel names it
+   "Draft fork" or "Draft session". Stop (Running panel) ends the worker, deletes the session and leaves "Stopped by
+   you." as the dialog's error.
 2. **Post**: you edit the review type, the body, each comment and its level (Must-fix, Should-fix, Suggestion, Nit,
    Question or none; it starts at the finding's severity), or leave a comment out, and click "Approve & post". A
    detached worker, never the fork, posts exactly that text as one review, each comment led by its level in bold: `gh
@@ -279,10 +293,11 @@ flashes it; `page.html#drafts` opens the dialog). `draft.py`, in three steps:
    second click while posting is refused, and posting cannot be stopped (GitHub may already have the review). The
    posted review's id, and the finding behind each of its comments, are added to `out/<page>/posted.json`, which the
    next draft does not replace, so a re-review can find each finding's thread on the PR.
-3. **Tell**: the fork is resumed once with only `SendMessage` (`send.deliver()`) and tells the review session (found in
+3. **Tell**: the drafting session (fork or fresh, in its own folder) is resumed once with only `SendMessage`
+   (`send.deliver()`) and tells the review session (found in
    `~/.claude/sessions/<pid>.json`, written by Claude Code; undocumented, so anything unexpected reads as closed) what
-   was posted and not to post it again. Then the fork's transcript and folder are deleted, unless the `delete_forks`
-   setting is false. A closed review session is not told. Discard and re-draft delete the fork as well. A fork open in
+   was posted and not to post it again. Then its transcript and folder are deleted, unless the `delete_forks`
+   setting is false. A closed review session is not told. Discard and re-draft delete it as well. A drafting session open in
    Claude Code (resumed from the Running panel) is never deleted, and it does not tell: `told` says why.
 
 The page polls `GET /api/handoff/<page>` while drafting, posting or telling.
@@ -482,14 +497,16 @@ of a first chat message that was stopped or whose worker died, or the relay sess
 
 ## Review the new commits
 
-When the freshness check says `behind` (or `rewritten`), the banner offers "Review the N new commits" ("Review the new
-head"), with what it will read beside it: for a fork, "Reads the review session again: about 120k tokens of context"
-(`sessions.context_tokens()`: the input of the review session's last answer, read from its transcript and kept until
-the file changes), for a fresh session "New session: reads only the findings and the new commits", and, when the new
+When the freshness check says `behind` (or `rewritten`), the banner offers two buttons, the `rereview.context`
+setting's first: "Review the N new commits in a fork" ("Review the new head in a fork") and "In a new session" (or the
+other way round), with what each reads beside them: "New session: reads only the findings and the new commits. Fork:
+reads the review session again, about 120k tokens." (`sessions.context_tokens()`: the input of the review session's
+last answer, read from its transcript and kept until the file changes). With no review transcript only the new-session
+button is offered (`rereview.view()`: `fork_ok`, `fork_why`). The running banner says which ("Reviewing the 2 new
+commits in a new session…"). And, when the new
 commits change none of the findings' files, **Move the lines only (no Claude)** (also on a page whose review transcript
-is gone; its running banner says "Moving the findings to the new head…"). When the page shows the working tree, or
-`rereview.context` is `fork` and the review's transcript is gone, there is no Review button and the reason is the banner
-text's title. Starting saves any pending triage first. With unposted drafts
+is gone; its running banner says "Moving the findings to the new head…"). When the page shows the working tree there
+is no Review button and the reason is the banner text's title. Starting saves any pending triage first. With unposted drafts
 (ready, or a failed post), the banner first asks "This discards the unposted drafts…" with Discard drafts and review /
 Cancel (Esc cancels); they go only if the re-review succeeds. While it runs, its own banner says "Reviewing the N new
 commits… 1:12" (the clock is `aria-hidden`; the start is said once) with Stop, and the page is **locked**: Post / Fix /
@@ -520,8 +537,9 @@ and go when you decide again or pick a line (the reset note also with the next r
 The freshness check says the PR moved past the reviewed commit; this reviews those commits and brings the page to the
 new head (decisions E1–E4 of 2026-10-19).
 
-- **Start** (`POST /api/rereview/<page>`, `rereview.start()`): refused when the page shows the working tree or, in a
-  fork, the review transcript is gone (409, and the page shows no button), when the check (`freshness.check()`, cached for a
+- **Start** (`POST /api/rereview/<page>`, `rereview.start()`; `{"context": "fork"|"fresh"}` in the body picks the
+  context, else `rereview.context`; 400 for anything else): refused when the page shows the working tree or, in a
+  fork, the review transcript is gone (409, and the page shows no fork button), when the check (`freshness.check()`, cached for a
   minute) finds nothing newer or the new head is not in the clone (409), while another job runs on the page (409 "Wait
   until Draft comments ends, or stop it in Sessions."; posting and telling cannot be stopped), and while unposted drafts
   are not confirmed for discarding (409 with `drafts: true`). The server hands the worker each finding's decision and
@@ -534,10 +552,10 @@ new head (decisions E1–E4 of 2026-10-19).
   file changed or the history was rewritten. The `rereviewed` entry says `lines_only`, the job's message is "Moved the
   findings to f48a8e88 without Claude: the new commits change none of their files.", and the hand-off says the page
   was moved "without a re-review". `rereview.view()` gives `lines_ok` when it can run.
-- **The fork**: with `rereview.context` `fork` (the default), `claude -p --resume <review session> --fork-session`;
-  with `fresh`, a new `claude -p` in the page's repository, whose prompt starts by saying it has not seen the review
-  and carries every open finding's text, and which needs no review transcript (with `fork`, a page whose transcript is
-  gone offers no re-review and says to set `fresh`). The review session's id is kept on record either way, so it is
+- **The fork**: in a fork (the `rereview.context` default), `claude -p --resume <review session> --fork-session`;
+  in a new session, a `claude -p` in the page's repository, whose prompt starts by saying it has not seen the review
+  and carries every open finding's text, and which needs no review transcript (a page whose transcript is gone offers
+  only that one). The review session's id is kept on record either way, so it is
   never deleted. The Sessions panel names it "Re-review fork" or "Re-review session". Read-only tools (`chat.READ_ONLY_TOOLS`), hooks
   off, `FINDING_VIEWER_CHILD=1`, `--add-dir out/` and `--add-dir` a worktree of the new head
   (`store.review_checkout()`), in the review session's folder; model: the session default or the `rereview_model`
