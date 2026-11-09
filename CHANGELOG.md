@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-09
+
 ### Added
 - **Draft comments can run in a new session** instead of a fork of the review session: it reads only the findings to
   post (in full), your triage and the code, in a checkout of the reviewed commit, so it costs far less on a long review
