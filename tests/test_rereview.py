@@ -391,6 +391,16 @@ class ContextTest(unittest.TestCase):
         with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
             self.assertIsNone(rereview.unavailable(self.page()))
 
+    def test_the_context_a_button_asks_for_wins_over_the_setting(self):
+        self.assertIsNone(rereview.unavailable(self.page(), where='fresh'))
+        with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
+            self.assertIn('transcript is gone', rereview.unavailable(self.page(), where='fork') or '')
+
+    def test_the_view_offers_fresh_when_the_fork_cannot_run(self):
+        v = rereview.view(self.page(), None)
+        self.assertEqual({k: v[k] for k in ('can', 'context', 'fork_ok')}, {'can': True, 'context': 'fork', 'fork_ok': False})
+        self.assertIn('transcript is gone', v['fork_why'])
+
     def test_a_fresh_prompt_says_it_has_not_seen_the_review(self):
         st = {'from': 'a' * 40, 'to': 'b' * 40}
         fresh = rereview.build_prompt(self.page(), st, {}, None, set(), 'fresh')
@@ -446,6 +456,7 @@ class ContextSizeTest(unittest.TestCase):
         data = support.sample_page('20261108-100041-ctx', session_id='sess-ctx-0003', ref='a' * 40)
         self.assertEqual({k: rereview.view(data, None)[k] for k in ('can', 'context', 'context_tokens')},
                          {'can': True, 'context': 'fork', 'context_tokens': 80000})
+        # Said whatever the default, for the page's fork button.
         with support.env(FINDING_VIEWER_REREVIEW_CONTEXT='fresh'):
-            self.assertNotIn('context_tokens', rereview.view(data, None))
+            self.assertEqual(rereview.view(data, None)['context_tokens'], 80000)
 

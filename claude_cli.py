@@ -15,6 +15,7 @@ import threading
 from pathlib import Path
 from typing import Iterator
 
+import config
 import sessions
 
 
@@ -89,3 +90,43 @@ def describe_tool(block: dict) -> str:
     if name == 'Bash':
         return f"Running {str(inp.get('command', ''))[:70]}"
     return f'Using {name}'
+
+
+def limit_args(prefix: str) -> list[str]:
+    """The claude flags for a run's limits (config ``<prefix>.max_turns``, ``<prefix>.max_budget_usd``); 0 is none."""
+    args = []
+    if turns := config.get(f'{prefix}.max_turns'):
+        args += ['--max-turns', str(turns)]
+    if budget := config.get(f'{prefix}.max_budget_usd'):
+        args += ['--max-budget-usd', f'{budget:g}']
+    return args
+
+
+def limit_error(prefix: str, what: str, result: dict | None, error: str | None) -> str | None:
+    """A run's error, said in the reviewer's words when it ended at one of its limits (claude's result subtypes):
+    ``what`` names the run ("The re-review"), ``prefix`` its settings."""
+    subtype = (result or {}).get('subtype')
+    if not error or subtype not in ('error_max_turns', 'error_max_budget_usd'):
+        return error
+    limit, key = ('turn', 'max_turns') if subtype == 'error_max_turns' else ('spending', 'max_budget_usd')
+    return (f'{what} stopped at its {limit} limit ({prefix}.{key}) before it answered. Raise the limit, or set it to 0 '
+            'for none, and start again.')
+
+
+def usage_of(result: dict | None, where: str) -> dict:
+    """What a run read and wrote, in tokens, and what claude says it cost. A fork's total_cost_usd can include the
+    review session's own spend (chat.py says so for a forked chat), which one result cannot tell apart; the tokens this
+    run read are its own."""
+    usage = (result or {}).get('usage') or {}
+    read = sum(usage.get(k) or 0 for k in ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'))
+    return {'context': where, 'tokens_read': read, 'cached': usage.get('cache_read_input_tokens') or 0,
+            'output_tokens': usage.get('output_tokens') or 0, 'cost_usd': (result or {}).get('total_cost_usd')}
+
+
+def spent(usage: dict | None) -> str:
+    """'412k tokens read, $1.37 (the fork's total)', or '' when nothing was counted."""
+    read, cost = (usage or {}).get('tokens_read') or 0, (usage or {}).get('cost_usd')
+    parts = [f'{read / 1000:.0f}k tokens read' if read >= 1000 else f'{read} tokens read'] if read else []
+    if isinstance(cost, (int, float)):
+        parts.append(f'${cost:.2f}' + (" (the fork's total)" if usage.get('context') == 'fork' else ''))
+    return ', '.join(parts)

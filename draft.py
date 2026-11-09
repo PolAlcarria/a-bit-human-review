@@ -1,14 +1,18 @@
-"""Draft the PR comments in a fork of the review session, post the ones the reviewer approves, tell the review session.
+"""Draft the PR comments, post the ones the reviewer approves, tell the review session.
 
-1. Draft: ``claude -p --resume <review session> --fork-session`` inherits the whole review conversation, gets the
-   triage, and returns the review as JSON (``--json-schema``). Read-only tools only, so it cannot post. The drafts land
-   in ``out/<page>/drafts.json`` and the page shows them for editing.
+1. Draft, in one of two contexts (config ``draft.context``, or the button the reviewer chose on the page):
+   ``fresh`` (the default), a new session in a checkout of the reviewed commit that gets the triage and the full text
+   of each finding to post, and reads nothing of the review session; or ``fork``, ``claude -p --resume <review
+   session> --fork-session``, which inherits the whole review conversation and so reads its whole context again. Either
+   returns the review as JSON (``--json-schema``), with read-only tools only, so it cannot post, and within
+   ``draft.max_turns`` and ``draft.max_budget_usd``. The drafts land in ``out/<page>/drafts.json`` with what the run
+   read and cost, and the page shows them for editing.
 2. Post: exactly the approved text is posted as one review with ``gh api`` (never by the fork, which could reword
    it), each comment led by the level chosen on the page ("**Must-fix:** …"). Comments outside the diff go in the
    review body, since GitHub accepts inline comments only inside hunks. A comment the reviewer wrote on the page
    (a note in "my comment" mode) replaces whatever the fork drafted for that finding.
-3. Tell: the fork is resumed once with only SendMessage and tells the review session what was posted, so it does not
-   post again. Then the fork's transcript is deleted.
+3. Tell: the drafting session (the fork, or the fresh one) is resumed once with only SendMessage and tells the review
+   session what was posted, so it does not post again. Then its transcript is deleted.
 
 Drafting, and posting + telling, each run in a detached worker process (``jobs.spawn``) that writes
 ``drafts.json`` itself, so a server restart in the middle loses nothing. The server starts the worker, reads the
@@ -34,8 +38,10 @@ import paths
 import send
 import sessions
 import store
+from severity import LABEL as SEVERITY_LABEL
 
 DRAFT_TIMEOUT_SECONDS = 600
+MAX_FINDING_CHARS = 4000  # of one finding's text in a prompt
 POST_TIMEOUT_SECONDS = 60
 EVENTS = ('COMMENT', 'REQUEST_CHANGES', 'APPROVE')
 # The level a posted comment leads with, and the one each finding severity starts at ('' posts no level).
@@ -86,6 +92,64 @@ Return JSON:
 Write each comment ready to post as is: no finding ids, no "Draft:" labels.
 
 """
+
+
+FRESH_INTRO = """You are drafting the GitHub review comments of {pr} for a reviewer, on a finding-viewer page. Someone
+else wrote the review: you have not seen it. The findings to post are below with their full text, and the triage
+after them says what the reviewer decided and noted. Read the code to word each comment well; quote only what the
+findings and the code support.
+
+"""
+
+
+def context() -> str:
+    """Where drafting runs by default (config draft.context): fresh, a new session that knows only the prompt; fork, a
+    fork of the review session, which knows the whole review and reads that session's whole context again."""
+    return config.get('draft.context')
+
+
+def finding_text(f: dict) -> str:
+    """One finding as a prompt quotes it in full: id, severity, title, where, and its text."""
+    at = ', '.join(f"{loc['path']}:{loc['start']}" + (f"-{loc['end']}" if (loc.get('end') or 0) > loc['start'] else '')
+                   for loc in f.get('locations') or [] if loc.get('path') and loc.get('start')) or 'no code anchor'
+    body = (f.get('body') or '').strip()
+    body = body[:MAX_FINDING_CHARS] + ('…' if len(body) > MAX_FINDING_CHARS else '')
+    return (f"- {f['id']} [{SEVERITY_LABEL.get(f.get('severity'), '')}] {f.get('title', '')}\n  at {at}"
+            + ('\n  ' + body.replace('\n', '\n  ') if body else ''))
+
+
+def build_prompt(data: dict, triage: str, notes: list[str], to_post: list[str], where: str) -> str:
+    """The drafting prompt. A fork has the review in its context, so it gets the text only of a finding a re-review
+    rewrote or added since (in a fresh re-review the review session never saw it); a fresh session gets the text of
+    every finding to post."""
+    findings = {f['id']: f for f in data.get('findings') or []}
+    quoted = [findings[k] for k in to_post if k in findings
+              and (where == 'fresh' or (findings[k].get('rereview') or {}).get('status') in ('changed', 'new'))]
+    head = ''
+    if where == 'fresh':
+        head = FRESH_INTRO.format(pr=f"PR #{data['pr']}" if data.get('pr') else 'a branch')
+    texts = ''
+    if quoted:
+        lead = ('Findings to post:' if where == 'fresh' else
+                'Findings to post that a re-review changed or added after your review (their text as it is now):')
+        texts = lead + '\n' + '\n'.join(finding_text(f) for f in quoted) + '\n\n'
+    return head + PROMPT + texts + triage + ''.join(f'\n{n}' for n in notes)
+
+
+def fork_why(data: dict) -> str | None:
+    """Why the page cannot draft in a fork of the review session, or None when it can."""
+    return None if sessions.review_session(data) else \
+        "The review session's transcript is gone, so there is nothing to fork. Draft in a new session instead."
+
+
+def view(data: dict) -> dict:
+    """Where the page can draft, for its two buttons: the default context, whether a fork can run, and how many
+    tokens of the review session's context a fork reads again."""
+    why = fork_why(data)
+    out = {'context': context(), 'fork_ok': not why, 'fork_why': why}
+    if not why:
+        out['context_tokens'] = sessions.context_tokens(sessions.review_session(data)[0])
+    return out
 
 
 def state_path(page: str) -> Path:
@@ -162,7 +226,8 @@ def with_level(level: str, text: str) -> str:
 
 
 def can_draft(data: dict) -> bool:
-    return bool(data.get('pr') and data.get('github') and sessions.review_session(data))
+    """Whether the page can draft at all: a fresh session needs no review transcript, only a PR on GitHub."""
+    return bool(data.get('pr') and data.get('github'))
 
 
 def in_diff(data: dict, path: str, line: int, start: int | None = None) -> bool:
@@ -179,13 +244,19 @@ def _busy(st: dict | None) -> str | None:
     return {'drafting': 'Already drafting.', 'posting': 'Still posting the review to GitHub.'}.get(status)
 
 
-def start(page: str, data: dict, prompt: str, version: str, own: dict[str, dict]) -> tuple[int, dict]:
-    """Start drafting. ``own`` maps a finding id to the comment the reviewer wrote for it and its anchor."""
+def start(page: str, data: dict, prompt: str, version: str, own: dict[str, dict],
+          where: str | None = None) -> tuple[int, dict]:
+    """Start drafting in ``where`` (fork or fresh; the draft.context setting when None). ``own`` maps a finding id to
+    the comment the reviewer wrote for it and its anchor."""
+    where = where or context()
     review = sessions.review_session(data)
     if not data.get('pr') or not data.get('github'):
         return 409, {'error': 'Only PR reviews can be posted from the page.'}
-    if not review:
-        return 409, {'error': "The review session's transcript is gone, so there is nothing to fork."}
+    if where == 'fork' and not review:
+        return 409, {'error': fork_why(data)}
+    # A fresh session runs in a checkout of the reviewed commit (the worker makes it); the review session's id is kept
+    # all the same, so it is never deleted and can be told what was posted.
+    review = review or (data.get('review_session') or data.get('session_id'), data.get('repo_root') or str(Path.home()))
     claude = claude_cli.binary()
     if not Path(claude).exists():
         return 500, {'error': 'claude CLI not found on PATH'}
@@ -197,7 +268,7 @@ def start(page: str, data: dict, prompt: str, version: str, own: dict[str, dict]
             return 409, {'error': busy}
         sessions.delete_session((old or {}).get('fork'), keep=review[0])
         st = {'status': 'drafting', 'started': time.time(), 'version': version, 'review_session': review[0],
-              'cwd': review[1], 'fork': None, 'steps': [], 'job': job, 'pid': None}
+              'cwd': review[1], 'context': where, 'fork': None, 'steps': [], 'job': job, 'pid': None}
         _write(page, st)
     try:
         pid = jobs.spawn({'kind': 'draft', 'job': job, 'page': page, 'prompt': prompt, 'own': own})
@@ -209,23 +280,38 @@ def start(page: str, data: dict, prompt: str, version: str, own: dict[str, dict]
 
 
 def run_draft(spec: dict) -> None:
-    """Worker (``finding_viewer.py job``): draft in a fork of the review session and record the drafts."""
+    """Worker (``finding_viewer.py job``): draft in a fork of the review session, or a fresh session, and record the
+    drafts with what the run read and cost."""
     page, job, own = spec['page'], spec['job'], spec.get('own') or {}
     st = _load(page) or {}
     if st.get('job') != job:
         return
     data = store.page_data(page) or {}
-    cmd = [claude_cli.binary(), '-p', *claude_cli.common_args(), '--resume', st['review_session'], '--fork-session',
+    where, prompt, cwd = st.get('context') or 'fork', spec['prompt'], st['cwd']
+    if where == 'fork':
+        resume = ['--resume', st['review_session'], '--fork-session']
+    else:
+        # The fresh session works in the reviewed code itself, and is resumed there to tell the review session.
+        _update(page, job, steps=['Checking out the reviewed commit'])
+        cwd, is_snapshot = store.review_checkout(data)
+        ref = store.reviewed_ref(data)
+        prompt = (f'Your working directory holds the reviewed code{f" (commit {ref[:12]})" if ref and is_snapshot else ""}'
+                  + (f"; `gh pr diff {data['pr']}` shows the PR's changes." if data.get('pr') else '.') + '\n\n' + prompt)
+        resume = []
+        _update(page, job, cwd=cwd)
+    cmd = [claude_cli.binary(), '-p', *claude_cli.common_args(), *resume,
            '--output-format', 'stream-json', '--verbose', '--allowedTools', *chat.READ_ONLY_TOOLS,
-           '--add-dir', str(paths.OUT), '--json-schema', json.dumps(SCHEMA)]
+           '--add-dir', str(paths.OUT), '--json-schema', json.dumps(SCHEMA), *claude_cli.limit_args('draft')]
     model = config.get('draft_model')
     if model:
         cmd += ['--model', model]
-    result, error, fork = run_fork(cmd, st['cwd'], spec['prompt'], DRAFT_TIMEOUT_SECONDS,
+    result, error, fork = run_fork(cmd, cwd, prompt, DRAFT_TIMEOUT_SECONDS,
                                    lambda **fields: _update(page, job, **fields), 'no drafts returned')
+    error = claude_cli.limit_error('draft', 'Drafting', result, error)
+    usage = claude_cli.usage_of(result, where)
     if error:
         chat.log(f'draft {page}: {error}')
-        _update(page, job, status='failed', error=error, phase='draft', fork=fork, ended=time.time())
+        _update(page, job, status='failed', error=error, phase='draft', fork=fork, ended=time.time(), usage=usage)
         return
     out = result['structured_output']
     findings = {f['id']: f for f in data.get('findings', [])}
@@ -250,14 +336,14 @@ def run_draft(spec: dict) -> None:
             add(fid, str(a.get('path') or ''), int(a.get('line') or 0), None,
                 default_level((findings.get(fid) or {}).get('severity')), o['body'])
     event = out.get('event') if out.get('event') in EVENTS else 'COMMENT'
-    _update(page, job, status='ready', error=None, drafted_at=jobstate.now(), ended=time.time(), fork=fork,
+    _update(page, job, status='ready', error=None, drafted_at=jobstate.now(), ended=time.time(), fork=fork, usage=usage,
             review={'body': str(out.get('body') or ''), 'event': event, 'comments': comments})
 
 
 def run_fork(cmd: list[str], cwd: str, prompt: str, timeout: int, record: Callable[..., object],
              empty: str) -> tuple[dict | None, str | None, str | None]:
-    """Run a fork of the review session (``claude -p --resume … --fork-session``, stream-json, ``--json-schema``) to its
-    result: (the result event, an error, the fork's id). ``record(fork=…)`` gets the fork's id from its first event and
+    """Run a claude session (a fork of the review session, ``claude -p --resume … --fork-session``, or a fresh one;
+    stream-json, ``--json-schema``) to its result: (the result event, an error, the session's id). ``record(fork=…)`` gets the fork's id from its first event and
     ``record(steps=…)`` each tool call, so the state can show them; ``empty`` is the error for a result without JSON."""
     result, error, fork, steps = None, None, None, []
     try:
@@ -475,16 +561,18 @@ def posted_reviews(page: str) -> list[dict]:
 
 
 def _tell(page: str, job: str, data: dict, review: dict, st: dict) -> None:
-    """The fork tells the review session what was posted, then the fork is deleted."""
-    live, open_fork = sessions.live_session(st['review_session']), sessions.live_session(st.get('fork') or '')
+    """The drafting session (the fork, or the fresh session) tells the review session what was posted, then it is
+    deleted."""
+    open_fork = sessions.live_session(st.get('fork') or '')
     if open_fork:
         # Resuming it here as well would write to a transcript someone has open; it stays, and so does its transcript.
-        told = {'ok': False, 'error': f"The fork is open in {open_fork.get('name') or 'Claude Code'}, so it did not tell "
-                                      'the review session, and it was not deleted.'}
-    elif not live or not live.get('name'):
+        told = {'ok': False, 'error': f"The drafting session is open in {open_fork.get('name') or 'Claude Code'}, so it "
+                                      'did not tell the review session, and it was not deleted.'}
+    elif not st.get('review_session') or not (live := sessions.live_session(st['review_session'])) \
+            or not live.get('name'):
         told = {'ok': False, 'error': 'The review session is closed, so it was not told.'}
     elif not st.get('fork'):
-        told = {'ok': False, 'error': 'The fork is gone, so the review session was not told.'}
+        told = {'ok': False, 'error': 'The drafting session is gone, so the review session was not told.'}
     else:
         _update(page, job, telling=live['name'])
         posted = [c.get('finding') for c in st['review']['comments'] if c.get('include', True) and c.get('body', '').strip()]

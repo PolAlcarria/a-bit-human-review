@@ -298,8 +298,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*start_rereview(parts[2], payload if isinstance(payload, dict) else {}))
         if len(parts) in (3, 4) and parts[:2] == ['api', 'draft'] and NAME_RE.match(parts[2]) and store.exists(parts[2]):
             if len(parts) == 3:
+                length = int(self.headers.get('Content-Length') or 0)
+                if length > MAX_BODY:
+                    return self._json(413, {'error': 'body too large'})
+                try:
+                    payload = json.loads(self.rfile.read(length)) if length else {}
+                except ValueError:
+                    return self._json(400, {'error': 'expected {"context": "fork"|"fresh"}'})
                 with rereview.guard(parts[2]) as running:
-                    answer = (423, rereview.locked_error(running)) if running else draft_review(parts[2])
+                    answer = (423, rereview.locked_error(running)) if running else \
+                        draft_review(parts[2], payload if isinstance(payload, dict) else {})
                 return self._json(*answer)
             if parts[3] == 'post':
                 length = int(self.headers.get('Content-Length') or 0)
@@ -444,7 +452,8 @@ def activity(page: str) -> dict:
     if rs := sessions.review_session(data):
         rows.append(session('review', 'Review session', rs[0], rs[1]))
     if st and sessions.transcript(st.get('fork')):
-        rows.append(session('fork', 'Draft fork', st['fork'], st.get('cwd')))
+        rows.append(session('fork', 'Draft fork' if st.get('context', 'fork') == 'fork' else 'Draft session',
+                            st['fork'], st.get('cwd')))
     if rr and sessions.transcript(rr.get('fork')):
         fork = session('rereview', 'Re-review fork' if rr.get('context', 'fork') == 'fork' else 'Re-review session',
                        rr['fork'], rr.get('cwd'))
@@ -470,37 +479,57 @@ def handoff(page: str) -> dict:
     live = sessions.live_session(owner) if owner and sessions.SESSION_RE.match(owner) else None
     session = {'id': owner, 'name': live.get('name'), 'status': live.get('status'),
                'cwd': (live.get('cwd') or '').replace(str(Path.home()), '~', 1) or None} if live else None
-    return {'session': session, 'can_draft': draft.can_draft(data), 'mode': store.review_mode(data, dec),
-            'draft': draft.state(page), 'send': send_state(page), 'version': version}
+    return {'session': session, 'can_draft': draft.can_draft(data), 'draft_context': draft.view(data),
+            'mode': store.review_mode(data, dec), 'draft': draft.state(page), 'send': send_state(page),
+            'version': version}
 
 
-def draft_review(page: str) -> tuple[int, dict]:
-    """Draft comments: a fork of the review session drafts the review from the triage (see draft.py)."""
+def chosen_context(payload: dict) -> tuple[str | None, str | None]:
+    """The context the page's button asked for (fork or fresh; None takes the setting), or an error."""
+    where = payload.get('context')
+    if where is None or where in config.CONTEXTS:
+        return where, None
+    return None, 'context must be fork or fresh'
+
+
+def draft_review(page: str, payload: dict | None = None) -> tuple[int, dict]:
+    """Draft comments: a fork of the review session, or a fresh session, drafts the review from the triage (see
+    draft.py). ``payload`` may name the context, as the page's two buttons do."""
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
+    where, bad = chosen_context(payload or {})
+    if bad:
+        return 400, {'error': bad}
+    where = where or draft.context()
     dec, chat_state, _owner, version = page_state(page)
     if store.review_mode(data, dec) != 'post':
         return 409, {'error': 'This review is in fix mode, where nothing is posted. Switch it to post to draft comments.'}
     fixed = rereview.fixed(data)  # nothing to post for a finding the new commits fixed
-    if not any(v.get('status') == 'post' and k not in fixed for k, v in (dec.get('findings') or {}).items()):
+    to_post = [k for k, v in (dec.get('findings') or {}).items() if v.get('status') == 'post' and k not in fixed]
+    if not to_post:
         return 400, {'error': 'Mark at least one finding Post first.'}
     notes = [n for n in (freshness.heads_up(page), freshness.pr_note(page)) if n]
-    prompt = draft.PROMPT + summarize(page, dec, chat_state, for_claude=False) + ''.join(f'\n{n}' for n in notes)
+    prompt = draft.build_prompt(data, summarize(page, dec, chat_state, for_claude=False), notes, to_post, where)
     own = {k: {'body': v['note'].strip(), 'anchor': v.get('anchor')} for k, v in (dec.get('findings') or {}).items()
            if v.get('status') == 'post' and v.get('mode') == 'comment' and str(v.get('note') or '').strip()
            and k not in fixed}
-    return draft.start(page, data, prompt, version, own)
+    return draft.start(page, data, prompt, version, own, where)
 
 
 def start_rereview(page: str, payload: dict) -> tuple[int, dict]:
-    """Review the new commits: a fork of the review session re-checks the findings at the PR's new head, and the page
-    is brought up to date with the triage carried over (see rereview.py)."""
+    """Review the new commits: a fork of the review session, or a fresh session (``payload['context']``, else the
+    rereview.context setting), re-checks the findings at the PR's new head, and the page is brought up to date with the
+    triage carried over (see rereview.py)."""
     data = store.page_data(page)
     if not data:
         return 404, {'error': 'unknown page'}
+    where, bad = chosen_context(payload)
+    if bad:
+        return 400, {'error': bad}
     dec, _chat, _owner, _version = page_state(page)
-    return rereview.start(page, data, dec, payload.get('discard_drafts') is True, payload.get('lines_only') is True)
+    return rereview.start(page, data, dec, payload.get('discard_drafts') is True, payload.get('lines_only') is True,
+                          where)
 
 
 def post_drafts(page: str, payload: dict) -> tuple[int, dict]:

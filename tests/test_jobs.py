@@ -72,12 +72,12 @@ class JobWorkerTests(unittest.TestCase):
             self.kill_later(st['pid'], st['job'])
         return code, st
 
-    def ready_draft(self, page):
+    def ready_draft(self, page, **env_values):
         """A draft the stub answers with READY_ANSWER; returns the finished state."""
         answer = support.SCRATCH / f'{page}-answer.json'
         answer.write_text(json.dumps(READY_ANSWER), encoding='utf-8')
         code, _ = self.start_draft(page, STUB_CLAUDE_STRUCTURED=answer,
-                                   STUB_CLAUDE_ARGS=support.SCRATCH / f'{page}-args.jsonl')
+                                   STUB_CLAUDE_ARGS=support.SCRATCH / f'{page}-args.jsonl', **env_values)
         self.assertEqual(code, 202)
         return support.wait_for(lambda: finished_draft(page))
 
@@ -148,14 +148,47 @@ class JobWorkerTests(unittest.TestCase):
         self.assertEqual(saved['status'], 'ready')
         self.assertEqual(saved['review'], EXPECTED_REVIEW)
 
-    def test_draft_forks_the_review_session_with_resume(self):
+    def args_of(self, page):
+        return json.loads((support.SCRATCH / f'{page}-args.jsonl').read_text(encoding='utf-8').splitlines()[0])
+
+    def test_draft_forks_the_review_session_with_resume_in_fork_context(self):
         page = self.page('jobs-draft-fork')
-        self.ready_draft(page)
-        lines = (support.SCRATCH / f'{page}-args.jsonl').read_text(encoding='utf-8').splitlines()
-        args = json.loads(lines[0])
+        st = self.ready_draft(page, FINDING_VIEWER_DRAFT_CONTEXT='fork')
+        args = self.args_of(page)
         self.assertIn('-p', args)
         self.assertEqual(args[args.index('--resume') + 1], 'sess-0001-aaaa')
         self.assertIn('--fork-session', args)
+        self.assertEqual(st['context'], 'fork')
+
+    def test_draft_by_default_runs_in_a_fresh_session_within_its_turn_limit(self):
+        page = self.page('jobs-draft-fresh')
+        st = self.ready_draft(page)
+        args = self.args_of(page)
+        self.assertNotIn('--resume', args)
+        self.assertNotIn('--fork-session', args)
+        self.assertEqual(args[args.index('--max-turns') + 1], '40')
+        self.assertEqual((st['context'], st['status']), ('fresh', 'ready'))
+
+    def test_a_draft_keeps_what_it_read_and_cost(self):
+        st = self.ready_draft(self.page('jobs-draft-usage'))
+        self.assertEqual(st['usage'], {'context': 'fresh', 'tokens_read': 120, 'cached': 0, 'output_tokens': 30,
+                                       'cost_usd': 0.0123})
+
+    def test_the_page_button_can_ask_for_a_fork_whatever_the_setting(self):
+        page = self.page('jobs-draft-chosen')
+        with support.env(STUB_CLAUDE_SLEEP='30'):
+            code, st = draft.start(page, store.page_data(page), 'Draft it.', 'v1', {}, 'fork')
+        self.kill_later(st['pid'], st['job'])
+        self.assertEqual((code, st['context']), (202, 'fork'))
+
+    def test_a_fresh_draft_needs_no_review_transcript_and_a_fork_does(self):
+        name = 'jobs-draft-no-transcript'
+        support.write_page(name, support.sample_page(name, session_id='sess-gone-0000'))
+        code, body = draft.start(name, store.page_data(name), 'Draft it.', 'v1', {}, 'fork')
+        self.assertEqual(code, 409)
+        self.assertIn('Draft in a new session instead', body['error'])
+        st = self.ready_draft(name)
+        self.assertEqual((st['status'], st['review_session']), ('ready', 'sess-gone-0000'))
 
     def test_stop_answers_stopped_true(self):
         page = self.page('jobs-draft-stop-answer')
