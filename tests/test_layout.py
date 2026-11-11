@@ -142,7 +142,8 @@ class MigrateLayoutTest(unittest.TestCase):
         self.assertTrue((OUT / C / 'decisions.json').is_file())
         self.assertEqual([n for n in os.listdir(OUT) if any(n.startswith(p + '.') for p in (A, B, C))], [])
         self.assertEqual(os.readlink(latest), str(OUT / A / 'page.html'))
-        self.assertEqual(store.page_data(A)['title'], data_a['title'])
+        # The stored title is kept as written; it reads under the one title rule (titles.py).
+        self.assertEqual(store.page_data(A)['title'], 'Code review · PR #4242')
         self.assertTrue(store.exists(B))
         self.assertTrue({A, B, C} <= set(store.pages()))
 

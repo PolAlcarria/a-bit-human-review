@@ -24,6 +24,7 @@ import parse
 import paths
 import render
 import store
+import titles
 import triage
 from severity import SEVERITY_WORDS
 
@@ -274,7 +275,8 @@ def spec_from_report(path: Path) -> dict | None:
     if not findings and not extract.enabled():
         return None
     sha = SHA_RE.search(text[:400])
-    title = next((parse.plain(ln[2:]) for ln in text.splitlines() if ln.startswith('# ')), path.stem)
+    # Provisional: render sets the page's title by the one rule (titles.py) once it knows the PR and the commit.
+    title = titles.code_title(commit=sha.group(1) if sha else None, fallback=path.stem)
     return {'source': 'report', 'title': title, 'subtitle': f'Saved review report · {path.name}',
             'cwd': str(path.parent), 'report_path': str(path), 'reviewed_sha': sha.group(1) if sha else None,
             'findings': findings, 'text': text}
@@ -306,7 +308,10 @@ def spec_from_tool(tool: dict, cwd: str) -> dict | None:
     findings = parse.assign_ids(findings)
     if not findings:
         return None
-    return {'source': 'tool', 'title': 'Code review findings', 'subtitle': 'Reported with ReportFindings',
+    root = render.repo_root(cwd) or Path(cwd)
+    branch = (store.git(root, 'rev-parse', '--abbrev-ref', 'HEAD') or '').strip()
+    return {'source': 'tool', 'title': titles.code_title(branch=branch, fallback=root.name),
+            'subtitle': 'Reported with ReportFindings',
             'cwd': cwd, 'findings': findings}
 
 
@@ -346,8 +351,7 @@ def spec_from_turn(turns: list[dict], index: int, cwd: str, extra_text: str = ''
         # branch. render.build_page asks gh for the branch's PR instead.
         mentioned, pr = pr, None
     when = dt.datetime.now().strftime('%Y-%m-%d %H:%M')
-    where = f"{repo.split('/')[-1]} PR #{pr}" if pr and repo else f'PR #{pr}' if pr else branch or root.name
-    return {'source': 'chat', 'title': f'Code review · {where}',
+    return {'source': 'chat', 'title': titles.code_title(pr=pr, branch=branch, fallback=root.name),
             'subtitle': f'Review from the chat · session {str(turn.get("session") or "")[:8]} · {when}',
             'cwd': cwd, 'pr': pr, 'mentioned_pr': mentioned, 'repo': repo, 'findings': findings, 'text': text,
             'request': turn['prompt'] or ''}

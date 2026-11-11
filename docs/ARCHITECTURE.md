@@ -87,6 +87,7 @@ Three layers: the entry point, the feature modules that do the work, and the sha
 | shared | `config.py` | Settings, read from `config.json` in the data folder; each key is overridable by its `FINDING_VIEWER_*` variable; keys that take one of a few words (`CHOICES`) and whole numbers in a range (`RANGES`) |
 | shared | `paths.py` | Where the code and the data live; `log` appends to `viewer.log`; the one-time move of an old checkout's data, and `migrate_layout`, the one-time move of flat pages into a folder each, both under `.migrate.lock` |
 | shared | `severity.py` | The severities, their id letters and labels, the words reviews use for them |
+| shared | `titles.py` | The page title, one rule for every source and both kinds (`code_title`, `diff_title`, `page_title`): `render` builds pages with it and `store.page_data` reads every page under it ([Page titles](behaviour.md#page-titles)) |
 | shared | `store.py` | Review data on disk: each page's folder `out/<page>/` (`page_dir`, `pages`, `exists`), `page_data` (reads `review.json`, the one way review data is read), the triage and chat files (`decisions.json`, `chat.json`), the checkout of the reviewed commit (`worktrees/`), `default_base` and `git` |
 | shared | `sessions.py` | Claude Code's session files: transcripts, open sessions, deleting a fork, the context a session's last answer held (`context_tokens`) |
 | shared | `claude_cli.py` | Running `claude` as a child: the binary, its environment and flags, a JSON call, a stream-json reader, a run's limits (`limit_args`, `limit_error`) and what it read and cost (`usage_of`, `spent`) |
@@ -132,7 +133,7 @@ Every file is JSON. The files of a page are in its folder, `out/<page>/`. The na
 an older file can lack some of them.
 
 - **Page data**: `out/<page>/review.json`, from `render.build_page()`. `page.html` beside it carries the same JSON in
-  its `<script type="application/json" id="data">` block. Top level: `page`, `title`, `subtitle`, `generated`,
+  its `<script type="application/json" id="data">` block. Top level: `page`, `title`, `subtitle`, `branch` (the working tree's branch; empty for a pinned commit), `generated`,
   `session_id`, `review_session`, `pr`, `pr_author`, `mode` (`post` or `fix`, see `store.review_mode`), `base`, `ref`, `blob_ref`, `ref_label`, `merge_base`, `github`,
   `repo_root`, `repo_name`, `notes`, `findings`, `files` (by path: `lines`, `lang`, `added`, `removed`, `hunks`,
   `changed`, `truncated`), and `rereviewed` after a re-review. A finding: `id`, `severity`, `title`, `body`,
