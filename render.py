@@ -20,6 +20,7 @@ import parse
 import paths
 import reviews
 import store
+import titles
 from store import git
 
 CONTEXT_LINES = 12
@@ -307,8 +308,6 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
     mentioned = spec.get('mentioned_pr')
     if mentioned and not spec.get('pr'):
         spec['pr'] = branch_pr(spec['cwd'])
-        if spec['pr']:
-            spec['title'] = f"Code review · PR #{spec['pr']}"
         if spec['pr'] != mentioned:
             log(f"render: PR #{mentioned} was only mentioned; the reviewed branch is "
                 + (f"PR #{spec['pr']}" if spec['pr'] else 'not a PR'))
@@ -390,7 +389,11 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
                               **({'rereview': f['rereview']} if f.get('rereview') else {})})
     page_files = {k: v for k, v in page_files.items() if v}
 
-    ref_label = f'commit {ref[:8]}' if ref else f'working tree ({(git(root, "rev-parse", "--abbrev-ref", "HEAD") or "").strip()})'
+    branch = '' if ref else (git(root, 'rev-parse', '--abbrev-ref', 'HEAD') or '').strip()
+    ref_label = f'commit {ref[:8]}' if ref else f'working tree ({branch})'
+    # The title follows one rule for every source (titles.py), whatever the hook proposed.
+    spec['title'] = titles.page_title({'pr': spec.get('pr'), 'ref': ref, 'branch': branch, 'blob_ref': head_sha,
+                                       'repo_name': root.name})
     out = Path(spec.get('out') or new_out_path(spec))
     data = {
         'page': out.parent.name, 'session_id': spec.get('session_id'), 'pr': spec.get('pr'), 'pr_author': pr_author, 'ref': ref,
@@ -401,7 +404,7 @@ def build_page(spec: dict) -> tuple[Path, dict] | None:
         # Left out when gh failed, so the checkout looks it up again.
         **pr_branch,
         'title': spec['title'], 'subtitle': spec.get('subtitle', ''), 'repo_root': str(root),
-        'repo_name': root.name, 'ref_label': ref_label, 'merge_base': merge_base[:8],
+        'repo_name': root.name, 'branch': branch, 'ref_label': ref_label, 'merge_base': merge_base[:8],
         'base': f"PR #{spec['pr']} diff" if patch is not None else base,
         'github': github_base(root), 'blob_ref': head_sha, 'notes': notes,
         'generated': dt.datetime.now().strftime('%Y-%m-%d %H:%M'), 'findings': page_findings, 'files': page_files,
@@ -489,8 +492,8 @@ def build_diff_page(spec: dict) -> tuple[Path, dict]:
     merge_base = (git(root, 'merge-base', base, 'HEAD') or '').strip()
     if not head or not merge_base:
         raise DiffError(f'{base} and HEAD share no history, so there is no branch to compare.')
-    branch = (git(root, 'rev-parse', '--abbrev-ref', 'HEAD') or '').strip()
-    branch = head[:8] if branch in ('', 'HEAD') else branch
+    on_branch = (git(root, 'rev-parse', '--abbrev-ref', 'HEAD') or '').strip()
+    branch = head[:8] if on_branch in ('', 'HEAD') else on_branch
     untracked = sorted(filter(None, (git(root, 'ls-files', '-z', '-o', '--exclude-standard') or '').split('\0')))
     uncommitted = bool(untracked) or bool((git(root, 'status', '--porcelain', '--untracked-files=no') or '').strip())
     ref = None if uncommitted else head
@@ -552,14 +555,14 @@ def build_diff_page(spec: dict) -> tuple[Path, dict]:
 
     total_add = sum(len(f['added']) for f in files.values())
     total_del = sum(len(t) for f in files.values() for t in f['removed_text'].values())
-    title = spec['title'] = spec.get('title') or f'Diff review · {branch}'
+    title = spec['title'] = titles.diff_title(on_branch, head)
     out = Path(spec.get('out') or new_out_path(spec))
     data = {
         'page': out.parent.name, 'kind': 'diff', 'session_id': spec.get('session_id'),
         'review_session': spec.get('session_id'), 'pr': None, 'pr_author': None, 'ref': ref, 'title': title,
         'subtitle': spec.get('subtitle') or f'{root.name} · {branch} against {base} · {phrase(len(files), "file")}, '
                     f'+{total_add} −{total_del}',
-        'repo_root': str(root), 'repo_name': root.name,
+        'repo_root': str(root), 'repo_name': root.name, 'branch': on_branch,
         'ref_label': f'commit {head[:8]} ({branch})' if ref else f'working tree ({branch})',
         'merge_base': merge_base[:8], 'base': base, 'github': github_base(root), 'blob_ref': head, 'notes': notes,
         'generated': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),

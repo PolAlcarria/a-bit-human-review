@@ -96,7 +96,7 @@ PRs that hold it, none at it, find no PR: the tool never guesses between them. A
 diff markers, a link to the PR in the header, a freshness check against the PR head, and "(PR #N)" in the hand-off.
 
 **Which PR, for a PR only mentioned** (`branch_pr()`): `gh pr view` in the session's folder gives the branch's own PR,
-which becomes the page's PR and title ("Code review · PR #N"). Without one, the page is a branch review. Either way the
+which becomes the page's PR and so its title ("Code review · PR #N"). Without one, the page is a branch review. Either way the
 page notes which PR came up and what it shows instead.
 
 **Which code to show**, in order:
@@ -140,6 +140,23 @@ through it (or as `file://` if the server cannot start, in which case triage sta
 says `open: false` (the Stop hook with `auto_open` off). `prune()` keeps the newest 40 pages and deletes older ones with
 everything stored for them (`reviews.delete_review()`).
 
+### Page titles
+
+A page's title follows one rule (`titles.py`), whatever the review came from (the chat, ReportFindings, a saved report,
+a re-review) and whatever the hook proposed. It is worked out from the page's data only, never from the review's text:
+
+| Page | Title |
+|---|---|
+| Code review of a PR | `Code review · PR #42` |
+| Code review of a pinned commit (a saved report's commit, a cached clone) | `Code review · commit 1a2b3c4d` |
+| Code review of the working tree | `Code review · <branch>` (`commit 1a2b3c4d` on a detached HEAD, the repository's folder outside git) |
+| Diff review | `Diff review · <branch>` (`commit 1a2b3c4d` on a detached HEAD) |
+
+The repository is not in the title: the subtitle and the list show it. `render` sets it when it builds the page and
+`store.page_data()` applies it to every page it reads, so pages of older versions ("Code review · billing PR #42",
+"Code review findings", a report's own heading) read the same way without their files being rewritten. Reviews without
+a PR are grouped in the list by this title.
+
 ## The server
 
 A `ThreadingHTTPServer` on `127.0.0.1:47321` (the `port` setting changes it).
@@ -158,7 +175,8 @@ A `ThreadingHTTPServer` on `127.0.0.1:47321` (the `port` setting changes it).
 - **Pages are served with the current template** (`reviews.page_html()`): the server reads the page's `review.json` and
   fills today's template (`web/viewer.html` with `shared.css`, `viewer.css` and `viewer.js` put in), so page changes
   reach old reviews. `page.html` is only for `file://`. The stored files are not rewritten. `store.page_data()` fills
-  the fields older pages lack: `page`, `pr` (from a `PR #N` title) and `session_id`.
+  the fields older pages lack: `page`, `pr` (from a `PR #N` title) and `session_id`, and sets the title by the rule
+  below ([Page titles](#page-titles)), so older pages read like new ones.
 
 The routes and the 423 / 409 rules: [ARCHITECTURE.md, Routes](ARCHITECTURE.md#routes).
 

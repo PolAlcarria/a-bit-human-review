@@ -13,6 +13,7 @@ from pathlib import Path
 
 import config
 import paths
+import titles
 
 KEEP_WORKTREES = 3
 PR_TITLE_RE = re.compile(r'PR #(\d+)')
@@ -98,6 +99,8 @@ def page_data(page: str) -> dict | None:
         # Pages rendered by older versions lack these fields.
         pr = PR_TITLE_RE.search(data.get('title') or '')
         data = {'page': page, 'pr': int(pr.group(1)) if pr else None, 'session_id': None, **data}
+        # Every page reads under the one title rule, older ones and any written by hand included.
+        data['title'] = titles.page_title(data)
         _page_cache[page] = (mtime, data)
         return data
     return None
