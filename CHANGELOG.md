@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-11
+
+### Fixed
+- **Page titles follow one rule** (`titles.py`), whatever the review came from: `Code review · PR #42`, `Code review ·
+  <branch>`, `Code review · commit 1a2b3c4d` for a pinned commit, and `Diff review · <branch>`. Before, the same PR could
+  read "Code review · billing PR #42" or "Code review · PR #42" depending on how the PR was found, a ReportFindings
+  review was always "Code review findings", and a saved report took its own heading. The title is worked out from the
+  page's data, never from the review text, and pages of older versions read under the same rule without their files
+  being rewritten. Reviews without a PR are grouped in the list by this title, so old cards of the same branch fold
+  together.
+
 ## [0.7.0] - 2026-11-09
 
 ### Added
