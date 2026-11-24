@@ -1,9 +1,13 @@
 import support  # noqa: F401  first: points the tool at a scratch environment before it is imported
 
+import json
 import unittest
+from unittest import mock
 
 import claude_cli
 import draft
+import jobs
+import store
 import triage
 
 PATH = 'src/app/billing.py'
@@ -175,6 +179,46 @@ class LimitsTest(unittest.TestCase):
         error = claude_cli.limit_error('draft', 'Drafting', {'subtype': 'error_max_turns'}, 'error_max_turns')
         self.assertEqual(error, 'Drafting stopped at its turn limit (draft.max_turns) before it answered. Raise the '
                                 'limit, or set it to 0 for none, and start again.')
+
+
+class TellPostedTest(unittest.TestCase):
+    """After a post, the review session is told where every approved finding went: inline, in the review body, or
+    missing. Runs the real post and tell with the stub gh; only the session lookups and the delivery are faked."""
+
+    def tell(self, name: str, approved: list[str], drafted: list[tuple[str, int]]) -> str:
+        data = support.sample_page(name, ref='c3' * 20)
+        support.write_page(name, data)
+        store.decisions_path(name).write_text(json.dumps(
+            {'findings': {fid: {'status': 'post'} for fid in approved}}), encoding='utf-8')
+        comments = [{'finding': fid, 'path': 'src/app/billing.py', 'line': line, 'level': '', 'body': f'About {fid}.'}
+                    for fid, line in drafted]
+        jobs.write_json(draft.state_path(name), {
+            'status': 'ready', 'review_session': 'sess-review', 'fork': 'sess-fork', 'cwd': str(support.WORK),
+            'review': {'body': 'Summary.', 'event': 'COMMENT', 'comments': comments}})
+        spawned, sent = [], []
+        with mock.patch.object(draft.jobs, 'spawn', lambda spec: spawned.append(spec) or 1), \
+                mock.patch.object(draft.sessions, 'live_session',
+                                  lambda sid: {'name': 'review-1'} if sid == 'sess-review' else None), \
+                mock.patch.object(draft.sessions, 'delete_session', lambda *a, **k: None), \
+                mock.patch.object(draft.send, 'deliver',
+                                  lambda to, msg, *a: sent.append(msg) or {'ok': True, 'error': None}):
+            status, _ = draft.post(name, data, {'event': 'COMMENT', 'body': 'Summary.', 'comments': comments})
+            self.assertEqual(status, 202)
+            draft.run_post(spawned[0], lambda page: None)
+        self.assertEqual(len(sent), 1)
+        return sent[0]
+
+    def test_a_mixed_post_lists_the_inline_and_the_body_findings(self):
+        # Hunk 38-45: C1 on line 42 goes inline, W1 on line 10 goes in the review body.
+        msg = self.tell('20261124-100000-tell-mixed', ['C1', 'W1'], [('C1', 42), ('W1', 10)])
+        self.assertIn('1 inline comments and 1 findings in the review body', msg)
+        self.assertIn('Approved 2: inline C1; body W1; missing none.', msg)
+        self.assertNotIn('Not in the posted review', msg)
+
+    def test_an_approved_finding_in_neither_group_is_named_missing_first(self):
+        msg = self.tell('20261124-100001-tell-missing', ['C1', 'W1'], [('C1', 42)])
+        self.assertTrue(msg.startswith('Not in the posted review: W1, approved on the page.\n'), msg)
+        self.assertIn('Approved 2: inline C1; body none; missing W1.', msg)
 
 
 class ChosenContextTest(unittest.TestCase):

@@ -57,8 +57,8 @@ JOB_LABEL = {'draft': 'Draft comments', 'post': 'Posting to GitHub'}
 SCHEMA = {
     'type': 'object',
     'properties': {
-        'body': {'type': 'string', 'description': "The review's top-level text (markdown): short; holds what has no "
-                                                  'anchor or sits outside the diff. May be empty.'},
+        'body': {'type': 'string', 'description': "The review's top-level text (markdown): a short summary only; every "
+                                                  'finding goes in comments. May be empty.'},
         'event': {'type': 'string', 'enum': list(EVENTS)},
         'comments': {'type': 'array', 'items': {'type': 'object', 'properties': {
             'finding': {'type': 'string', 'description': 'Finding id from the triage, e.g. C1'},
@@ -81,13 +81,15 @@ in the code: no comment for them, and keep them out of the body.
 
 Return JSON:
 - comments: one per finding to post, on its anchor below (path and line on the new side of the diff). Use
-  start_line..line for a comment about a block.
+  start_line..line for a comment about a block. Every finding to post gets its own comment, also one whose anchor is
+  outside the diff (keep that path and line) or that has none (path "" and line 0): the page moves those into the
+  review body itself.
 - level of each comment: must-fix for a Critical finding, should-fix for a Warning, suggestion for a Suggestion,
   question for a Question, empty for a plain Finding. Change it only when the reviewer's note asks for another level
   (nit, say). The page puts the level in front of the comment, so do not write it in the body.
 - A finding with a "Reviewer's own comment" is already written: return it as a comment with exactly that text, even
   when it has no anchor (then path "" and line 0), and keep it out of the review body.
-- body: the review's top-level text. Keep it short. It also holds findings with no anchor or outside the diff.
+- body: the review's top-level text: a short summary only. Do not write any finding into it.
 - event: COMMENT unless the reviewer's notes ask for something else.
 Write each comment ready to post as is: no finding ids, no "Draft:" labels.
 
@@ -517,7 +519,7 @@ def run_post(spec: dict, on_posted: Callable[[str], None]) -> None:
     if not st:
         return
     on_posted(page)
-    _tell(page, job, data, review, st)
+    _tell(page, job, data, review, st, spec.get('posted') or [])
 
 
 def posted_path(page: str) -> Path:
@@ -560,9 +562,22 @@ def posted_reviews(page: str) -> list[dict]:
     return reviews
 
 
-def _tell(page: str, job: str, data: dict, review: dict, st: dict) -> None:
+def posted_summary(page: str, posted: list[dict]) -> tuple[str, str]:
+    """Where each approved finding (status post in decisions.json) went: inline, the review body, or missing. Returns
+    (a line naming the missing ones, empty when none are; the line placing every approved finding)."""
+    dec = (store.load_decisions(store.decisions_path(page)) or {}).get('findings') or {}
+    approved = [k for k, v in dec.items() if (v or {}).get('status') == 'post']
+    inline = [c['finding'] for c in posted if c.get('finding') and not c.get('in_body')]
+    body = [c['finding'] for c in posted if c.get('finding') and c.get('in_body')]
+    missing = [k for k in approved if k not in inline and k not in body]
+    where = (f"Approved {len(approved)}: inline {' '.join(inline) or 'none'}; body {' '.join(body) or 'none'}; "
+             f"missing {' '.join(missing) or 'none'}.")
+    return (f"Not in the posted review: {', '.join(missing)}, approved on the page." if missing else ''), where
+
+
+def _tell(page: str, job: str, data: dict, review: dict, st: dict, posted: list[dict]) -> None:
     """The drafting session (the fork, or the fresh session) tells the review session what was posted, then it is
-    deleted."""
+    deleted. ``posted`` is the finding behind each posted comment, as ``post`` recorded it."""
     open_fork = sessions.live_session(st.get('fork') or '')
     if open_fork:
         # Resuming it here as well would write to a transcript someone has open; it stays, and so does its transcript.
@@ -575,12 +590,14 @@ def _tell(page: str, job: str, data: dict, review: dict, st: dict) -> None:
         told = {'ok': False, 'error': 'The drafting session is gone, so the review session was not told.'}
     else:
         _update(page, job, telling=live['name'])
-        posted = [c.get('finding') for c in st['review']['comments'] if c.get('include', True) and c.get('body', '').strip()]
-        message = (f"Finding-viewer posted the review of PR #{data['pr']} from the review page: "
-                   f"{review['event']} review, {len(review['comments'])} inline comments, on {review['commit_id'][:10]}. "
-                   f"{st['posted']['url']}\n"
+        in_body = sum(1 for c in posted if c.get('in_body'))
+        missing, where = posted_summary(page, posted)
+        message = ((missing + '\n' if missing else '')
+                   + f"Finding-viewer posted the review of PR #{data['pr']} from the review page: "
+                   f"{review['event']} review, {len(review['comments'])} inline comments and {in_body} findings in "
+                   f"the review body, on {review['commit_id'][:10]}. {st['posted']['url']}\n"
                    'The reviewer approved this exact text on the page, so it is done: do not post these comments again.'
-                   + (f"\nFindings posted: {', '.join(posted)}." if posted else ''))
+                   f"\n{where}")
         result = send.deliver(live['name'], message, ['--resume', st['fork']], st['cwd'])
         told = {'ok': result['ok'], 'to': live['name'], 'error': result['error']}
     sessions.delete_session(st.get('fork'), keep=st['review_session'])
