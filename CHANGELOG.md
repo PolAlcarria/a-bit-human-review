@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-24
+
+### Fixed
+- **The review session is told where every approved finding went.** After a post, the message lists the approved
+  findings in three groups: inline, in the review body, and missing (`Approved 9: inline S5 S6 S7 S8; body W1 W2 W3 W4
+  Q9; missing none.`), with the inline and body counts. Missing ones are named first, with no reason given. Before, it
+  counted only inline comments, so a session read findings outside the diff as not posted.
+- **Findings outside the diff are drafted as their own comments**, each with its finding id, and the page moves them
+  into the review body. Before, the drafter wrote them into the body as prose, so nothing recorded where they went. The
+  body now holds only the summary.
+
 ## [0.7.1] - 2026-11-11
 
 ### Fixed
